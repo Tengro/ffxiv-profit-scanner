@@ -1,0 +1,63 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: FFXIV-Scanner.exe
+            pyinstaller_extra: "--windowed"
+          - os: ubuntu-latest
+            artifact: FFXIV-Scanner
+            pyinstaller_extra: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller --name "FFXIV-Scanner" --onefile --hidden-import nicegui --collect-all nicegui ${{ matrix.pyinstaller_extra }} app.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FFXIV-Scanner-${{ runner.os }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/FFXIV-Scanner-Windows/FFXIV-Scanner.exe
+            artifacts/FFXIV-Scanner-Linux/FFXIV-Scanner
+          generate_release_notes: true

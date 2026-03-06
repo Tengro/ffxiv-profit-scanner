@@ -1,0 +1,169 @@
+import statistics
+import time
+from dataclasses import dataclass, field
+
+import requests
+
+from scanner import cache
+
+BASE_URL = "https://universalis.app/api/v2"
+MAX_BATCH_SIZE = 100
+OUTLIER_FACTOR = 3.0  # Sales more than 3x away from median are outliers
+
+_last_request_time = 0.0
+RATE_LIMIT_MS = 100
+
+
+def _rate_limit():
+    global _last_request_time
+    elapsed = time.time() - _last_request_time
+    if elapsed < RATE_LIMIT_MS / 1000:
+        time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
+    _last_request_time = time.time()
+
+
+@dataclass
+class WorldListing:
+    world_name: str
+    price_per_unit: int
+    quantity: int
+    is_hq: bool
+
+
+@dataclass
+class PriceData:
+    item_id: int
+    avg_sale_price: float
+    min_price: int
+    current_avg_price: float
+    nq_sale_velocity: float
+    last_upload_time: int
+    is_stale: bool
+    listings: list[WorldListing] = field(default_factory=list)
+    recent_sales: list[dict] = field(default_factory=list)
+
+
+def _robust_average(prices: list[int | float]) -> float:
+    """Compute outlier-resistant average price.
+
+    Uses median as anchor, filters out anything more than OUTLIER_FACTOR
+    away from the median, then averages survivors.
+    """
+    valid = [p for p in prices if p > 0]
+    if not valid:
+        return 0
+    if len(valid) == 1:
+        return valid[0]
+
+    med = statistics.median(valid)
+    if med <= 0:
+        return 0
+
+    lower = med / OUTLIER_FACTOR
+    upper = med * OUTLIER_FACTOR
+    filtered = [p for p in valid if lower <= p <= upper]
+
+    if not filtered:
+        return med
+    return statistics.mean(filtered)
+
+
+def _parse_item_data(item_id: int, data: dict) -> PriceData:
+    now = time.time()
+    last_upload = data.get("lastUploadTime", 0)
+    # lastUploadTime is in milliseconds
+    if last_upload > 1e12:
+        last_upload_sec = last_upload / 1000
+    else:
+        last_upload_sec = last_upload
+    is_stale = (now - last_upload_sec) > 86400  # 24 hours
+
+    listings = []
+    for listing in data.get("listings", []):
+        listings.append(WorldListing(
+            world_name=listing.get("worldName", ""),
+            price_per_unit=listing.get("pricePerUnit", 0),
+            quantity=listing.get("quantity", 0),
+            is_hq=listing.get("hq", False),
+        ))
+
+    recent_sales = []
+    for sale in data.get("recentHistory", []):
+        recent_sales.append({
+            "price": sale.get("pricePerUnit", 0),
+            "quantity": sale.get("quantity", 0),
+            "timestamp": sale.get("timestamp", 0),
+            "world_name": sale.get("worldName", ""),
+            "hq": sale.get("hq", False),
+        })
+
+    # Compute robust average from recent sales (outlier-resistant)
+    robust_avg = _robust_average([s["price"] for s in recent_sales])
+    # Fall back to API average if we don't have enough sales data
+    avg_price = robust_avg if robust_avg > 0 else data.get("averagePrice", 0)
+
+    return PriceData(
+        item_id=item_id,
+        avg_sale_price=avg_price,
+        min_price=data.get("minPrice", 0),
+        current_avg_price=data.get("currentAveragePrice", 0),
+        nq_sale_velocity=data.get("nqSaleVelocity", data.get("regularSaleVelocity", 0)),
+        last_upload_time=last_upload,
+        is_stale=is_stale,
+        listings=listings,
+        recent_sales=recent_sales,
+    )
+
+
+def fetch_prices(
+    item_ids: list[int],
+    dc: str,
+    no_cache: bool = False,
+    listings: int = 10,
+    entries: int = 30,
+) -> dict[int, PriceData]:
+    results = {}
+    to_fetch = []
+
+    # Check cache first
+    if not no_cache:
+        for item_id in item_ids:
+            cached = cache.get("universalis", f"{dc}_{item_id}")
+            if cached:
+                results[item_id] = _parse_item_data(item_id, cached)
+            else:
+                to_fetch.append(item_id)
+    else:
+        to_fetch = list(item_ids)
+
+    # Batch fetch remaining
+    for i in range(0, len(to_fetch), MAX_BATCH_SIZE):
+        batch = to_fetch[i:i + MAX_BATCH_SIZE]
+        _rate_limit()
+
+        ids_str = ",".join(str(x) for x in batch)
+        url = f"{BASE_URL}/{dc}/{ids_str}"
+        resp = requests.get(
+            url,
+            params={"listings": listings, "entries": entries},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        if len(batch) == 1:
+            # Single item: response is the item data directly
+            item_id = batch[0]
+            if not no_cache:
+                cache.put("universalis", f"{dc}_{item_id}", data)
+            results[item_id] = _parse_item_data(item_id, data)
+        else:
+            # Batch: response wraps in {"items": {"id": {...}}}
+            items = data.get("items", {})
+            for str_id, item_data in items.items():
+                item_id = int(str_id)
+                if not no_cache:
+                    cache.put("universalis", f"{dc}_{item_id}", item_data)
+                results[item_id] = _parse_item_data(item_id, item_data)
+
+    return results
