@@ -197,6 +197,8 @@ def fetch_prices(
                     cache.put("universalis", f"{dc}_{item_id}", item_data)
                 results[item_id] = _parse_item_data(item_id, item_data)
 
+    return results
+
 
 def fetch_prices_lightweight(
     item_ids: list[int],
@@ -259,5 +261,3 @@ def fetch_prices_lightweight(
         time.sleep(RATE_LIMIT_MS / 1000)
 
     return result
-
-    return results
