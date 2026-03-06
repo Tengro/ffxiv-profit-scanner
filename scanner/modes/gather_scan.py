@@ -10,6 +10,7 @@ def scan(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_price: float = 100,
     min_velocity: float = 1.0,
     min_level: int = 0,
@@ -60,7 +61,7 @@ def scan(
     _progress(2, f"Fetching prices for {len(item_ids)} items...")
 
     price_data = _batch_fetch_prices(
-        item_ids, dc,
+        item_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
         on_batch=lambda done, total: _progress(2, f"Fetching prices ({done}/{total} batches)..."),
     )
 
@@ -99,7 +100,8 @@ def scan(
         _progress(3, f"Fetching {world} prices...")
         result_ids = [r["item_id"] for r in results]
         world_prices = universalis.fetch_prices(
-            result_ids, world, no_cache=no_cache, listings=5, entries=20,
+            result_ids, world, no_cache=no_cache, allow_stale=allow_stale,
+            listings=5, entries=20,
         )
         for r in results:
             wp = world_prices.get(r["item_id"])
@@ -123,15 +125,35 @@ def scan(
 def _batch_fetch_prices(
     item_ids: list[int],
     dc: str,
+    no_cache: bool = False,
+    allow_stale: bool = False,
     on_batch: callable = None,
 ) -> dict[int, dict]:
-    """Fetch lightweight price data for a list of items."""
+    """Fetch lightweight price data for a list of items. Cached per-item."""
     import requests
+    from scanner import cache
 
     result = {}
-    total_batches = (len(item_ids) + 99) // 100
-    for i in range(0, len(item_ids), 100):
-        batch = item_ids[i:i + 100]
+    to_fetch = []
+
+    if not no_cache:
+        for item_id in item_ids:
+            cached = cache.get("universalis", f"lite_{dc}_{item_id}", allow_stale=allow_stale)
+            if cached is not None:
+                result[item_id] = cached
+            else:
+                to_fetch.append(item_id)
+    else:
+        to_fetch = list(item_ids)
+
+    if not to_fetch:
+        if on_batch:
+            on_batch(1, 1)
+        return result
+
+    total_batches = (len(to_fetch) + 99) // 100
+    for i in range(0, len(to_fetch), 100):
+        batch = to_fetch[i:i + 100]
         batch_num = i // 100 + 1
         ids_str = ",".join(str(x) for x in batch)
         try:
@@ -142,9 +164,14 @@ def _batch_fetch_prices(
             data = resp.json()
             if len(batch) == 1:
                 result[batch[0]] = data
+                if not no_cache:
+                    cache.put("universalis", f"lite_{dc}_{batch[0]}", data)
             else:
                 for k, v in data.get("items", {}).items():
-                    result[int(k)] = v
+                    item_id = int(k)
+                    result[item_id] = v
+                    if not no_cache:
+                        cache.put("universalis", f"lite_{dc}_{item_id}", v)
         except requests.exceptions.Timeout:
             print(f"  Warning: Batch {batch_num}/{total_batches} timed out",
                   file=sys.stderr)
@@ -165,6 +192,7 @@ def run(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_price: float = 100,
     min_velocity: float = 1.0,
     min_level: int = 0,
@@ -190,7 +218,7 @@ def run(
         print(f"  Phase {phase}/{total}: {msg}")
 
     results = scan(
-        dc=dc, world=world, no_cache=no_cache,
+        dc=dc, world=world, no_cache=no_cache, allow_stale=allow_stale,
         min_price=min_price, min_velocity=min_velocity,
         min_level=min_level, btn_level=btn_level, fsh_level=fsh_level,
         sort_by=sort_by, on_progress=_print_progress,

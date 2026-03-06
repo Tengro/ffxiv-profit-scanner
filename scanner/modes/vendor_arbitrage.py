@@ -9,6 +9,7 @@ def scan(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_markup: float = 50,
     min_velocity: float = 1.0,
 ) -> list[dict]:
@@ -16,7 +17,7 @@ def scan(
     seed_ids = list(vendor_items.keys())
 
     price_region = world or dc
-    prices = universalis.fetch_prices(seed_ids, price_region, no_cache=no_cache)
+    prices = universalis.fetch_prices(seed_ids, price_region, no_cache=no_cache, allow_stale=allow_stale)
 
     results = []
     for item_id in seed_ids:
@@ -60,6 +61,7 @@ def run(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_markup: float = 50,
     min_velocity: float = 1.0,
     show_worlds: bool = False,
@@ -69,7 +71,7 @@ def run(
         header += f" / {world}"
     print_header(header)
 
-    results = scan(dc=dc, world=world, no_cache=no_cache,
+    results = scan(dc=dc, world=world, no_cache=no_cache, allow_stale=allow_stale,
                    min_markup=min_markup, min_velocity=min_velocity)
 
     if not results:

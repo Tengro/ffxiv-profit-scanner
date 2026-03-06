@@ -13,6 +13,7 @@ def scan(
     category: str | None = None,
     gc_seals_free: bool = False,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_margin: float = 0,
     sort_by: str = "profit_per_day",
 ) -> list[MarginResult]:
@@ -47,13 +48,14 @@ def scan(
 
     # Batch fetch DC-wide prices for all items + ingredients
     all_price_ids = list(set(scan_ids) | all_ingredient_ids)
-    prices = universalis.fetch_prices(all_price_ids, dc, no_cache=no_cache)
+    prices = universalis.fetch_prices(all_price_ids, dc, no_cache=no_cache, allow_stale=allow_stale)
 
     # Fetch world-specific prices for finished items
     world_prices = None
     if world:
         world_prices = universalis.fetch_prices(
-            scan_ids, world, no_cache=no_cache, listings=5, entries=20,
+            scan_ids, world, no_cache=no_cache, allow_stale=allow_stale,
+            listings=5, entries=20,
         )
 
     # Calculate margins
@@ -85,6 +87,7 @@ def run(
     category: str | None = None,
     gc_seals_free: bool = False,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_margin: float = 0,
     sort_by: str = "profit_per_day",
     show_worlds: bool = False,
@@ -96,7 +99,7 @@ def run(
 
     results = scan(
         dc=dc, world=world, item_ids=item_ids, category=category,
-        gc_seals_free=gc_seals_free, no_cache=no_cache,
+        gc_seals_free=gc_seals_free, no_cache=no_cache, allow_stale=allow_stale,
         min_margin=min_margin, sort_by=sort_by,
     )
 

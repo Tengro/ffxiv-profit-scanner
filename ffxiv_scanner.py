@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--item-id", type=int, help="Scan a specific item by ID")
     parser.add_argument("--gc-seals-free", action="store_true", help="Treat GC seal items as free")
     parser.add_argument("--no-cache", action="store_true", help="Force fresh API calls")
+    parser.add_argument("--stale-ok", action="store_true", help="Use cached data even if expired")
     parser.add_argument("--min-price", type=float, default=50000,
                         help="Minimum avg sale price for discovery mode (default: 50000)")
     parser.add_argument("--min-margin", type=float, default=0, help="Minimum margin %% for craft scan")
@@ -66,6 +67,7 @@ def main():
             category=args.category,
             gc_seals_free=args.gc_seals_free,
             no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_margin=args.min_margin,
             sort_by=args.sort_by,
             show_worlds=args.show_worlds,
@@ -76,6 +78,7 @@ def main():
             dc=args.dc,
             world=args.world,
             no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_markup=args.min_markup,
             min_velocity=args.min_velocity,
             show_worlds=args.show_worlds,
@@ -87,6 +90,7 @@ def main():
             item_ids=item_ids,
             category=args.category,
             no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_spread=args.min_spread,
             min_velocity=args.min_velocity,
             show_worlds=args.show_worlds,
@@ -97,6 +101,7 @@ def main():
             dc=args.dc,
             world=args.world,
             no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_price=args.min_price,
             min_velocity=args.min_velocity,
             min_margin=args.min_margin,
@@ -109,6 +114,7 @@ def main():
             dc=args.dc,
             world=args.world,
             no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_price=args.min_price,
             min_velocity=args.min_velocity,
             min_level=args.min_level,

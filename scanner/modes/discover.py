@@ -20,6 +20,7 @@ def scan(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_price: float = 50000,
     min_velocity: float = 0.5,
     min_margin: float = 0,
@@ -45,7 +46,7 @@ def scan(
     total_batches = len(all_item_ids) // 100 + 1
     _progress(2, f"Scanning prices (0/{total_batches} batches)...")
     market_data = _batch_fetch_lightweight(
-        all_item_ids, dc,
+        all_item_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
         on_batch=lambda done, total: _progress(2, f"Scanning prices ({done}/{total} batches)..."),
     )
 
@@ -95,14 +96,15 @@ def scan(
     _progress(4, f"Fetching detailed prices for {len(all_price_ids)} items...")
 
     prices = universalis.fetch_prices(
-        all_price_ids, dc, no_cache=no_cache, entries=20,
+        all_price_ids, dc, no_cache=no_cache, allow_stale=allow_stale, entries=20,
     )
 
     world_prices = None
     if world:
         _progress(4, f"Fetching {world} prices...")
         world_prices = universalis.fetch_prices(
-            craftable_ids, world, no_cache=no_cache, listings=5, entries=20,
+            craftable_ids, world, no_cache=no_cache, allow_stale=allow_stale,
+            listings=5, entries=20,
         )
 
     # Phase 5: Calculate margins
@@ -135,6 +137,7 @@ def run(
     dc: str,
     world: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_price: float = 50000,
     min_velocity: float = 0.5,
     min_margin: float = 0,
@@ -150,7 +153,7 @@ def run(
         print(f"  Phase {phase}/{total}: {msg}")
 
     results = scan(
-        dc=dc, world=world, no_cache=no_cache,
+        dc=dc, world=world, no_cache=no_cache, allow_stale=allow_stale,
         min_price=min_price, min_velocity=min_velocity,
         min_margin=min_margin, sort_by=sort_by,
         on_progress=_print_progress,
@@ -168,13 +171,35 @@ def run(
 def _batch_fetch_lightweight(
     item_ids: list[int],
     dc: str,
+    no_cache: bool = False,
+    allow_stale: bool = False,
     on_batch: callable = None,
 ) -> dict[int, dict]:
-    """Fetch just averagePrice + velocity for all items. Minimal data."""
+    """Fetch just averagePrice + velocity for all items. Cached per-item."""
+    from scanner import cache
+
     result = {}
-    total_batches = len(item_ids) // 100 + 1
-    for i in range(0, len(item_ids), 100):
-        batch = item_ids[i:i + 100]
+    to_fetch = []
+
+    # Check cache first
+    if not no_cache:
+        for item_id in item_ids:
+            cached = cache.get("universalis", f"lite_{dc}_{item_id}", allow_stale=allow_stale)
+            if cached is not None:
+                result[item_id] = cached
+            else:
+                to_fetch.append(item_id)
+    else:
+        to_fetch = list(item_ids)
+
+    if not to_fetch:
+        if on_batch:
+            on_batch(1, 1)
+        return result
+
+    total_batches = (len(to_fetch) + 99) // 100
+    for i in range(0, len(to_fetch), 100):
+        batch = to_fetch[i:i + 100]
         batch_num = i // 100 + 1
         ids_str = ",".join(str(x) for x in batch)
         try:
@@ -185,9 +210,14 @@ def _batch_fetch_lightweight(
             data = resp.json()
             if len(batch) == 1:
                 result[batch[0]] = data
+                if not no_cache:
+                    cache.put("universalis", f"lite_{dc}_{batch[0]}", data)
             else:
                 for k, v in data.get("items", {}).items():
-                    result[int(k)] = v
+                    item_id = int(k)
+                    result[item_id] = v
+                    if not no_cache:
+                        cache.put("universalis", f"lite_{dc}_{item_id}", v)
         except requests.exceptions.Timeout:
             print(f"  Warning: Batch {batch_num}/{total_batches} timed out after retries",
                   file=sys.stderr)

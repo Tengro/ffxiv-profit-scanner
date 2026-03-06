@@ -12,6 +12,7 @@ def scan(
     item_ids: list[int] | None = None,
     category: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_spread: float = 50,
     min_velocity: float = 0.5,
 ) -> list[dict]:
@@ -25,7 +26,8 @@ def scan(
         scan_ids = list(set(get_all_workshop_ids() + get_vendor_seed_ids()))
 
     prices = universalis.fetch_prices(
-        scan_ids, dc, no_cache=no_cache, listings=20, entries=20,
+        scan_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
+        listings=20, entries=20,
     )
 
     vendor_items = get_vendor_items()
@@ -98,6 +100,7 @@ def run(
     item_ids: list[int] | None = None,
     category: str | None = None,
     no_cache: bool = False,
+    allow_stale: bool = False,
     min_spread: float = 50,
     min_velocity: float = 0.5,
     show_worlds: bool = False,
@@ -105,8 +108,8 @@ def run(
     print_header(f"Cross-World Spread Scan — {dc} DC")
 
     results = scan(dc=dc, item_ids=item_ids, category=category,
-                   no_cache=no_cache, min_spread=min_spread,
-                   min_velocity=min_velocity)
+                   no_cache=no_cache, allow_stale=allow_stale,
+                   min_spread=min_spread, min_velocity=min_velocity)
 
     if not results:
         print(f"\n  No cross-world spreads found above {min_spread}%.")

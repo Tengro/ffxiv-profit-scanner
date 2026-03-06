@@ -5,6 +5,7 @@ from nicegui import ui, run
 
 from scanner.modes import craft_scan, vendor_arbitrage, cross_world, discover, gather_scan, scrape_seeds
 from scanner.data.seeds import _load_seeds, SEEDS_PATH
+from scanner import cache
 
 # Known FFXIV data centers
 DATA_CENTERS = [
@@ -19,6 +20,57 @@ def gil(amount: float) -> str:
     if amount >= 0:
         return f"{amount:,.0f}"
     return f"-{abs(amount):,.0f}"
+
+
+def _format_age(seconds: float) -> str:
+    """Human-readable age string."""
+    if seconds < 60:
+        return f"{seconds:.0f}s ago"
+    if seconds < 3600:
+        return f"{seconds / 60:.0f}m ago"
+    if seconds < 86400:
+        h = seconds / 3600
+        return f"{h:.1f}h ago"
+    d = seconds / 86400
+    return f"{d:.1f}d ago"
+
+
+async def _show_stale_dialog(age_str: str, run_fn):
+    """Show a dialog asking user whether to use stale cache or refresh."""
+    dialog = ui.dialog()
+
+    async def _use_cached():
+        dialog.close()
+        await run_fn(allow_stale=True)
+
+    async def _refresh():
+        dialog.close()
+        await run_fn(allow_stale=False)
+
+    with dialog, ui.card():
+        ui.label(f"Cached price data is {age_str}.").classes("text-subtitle1")
+        ui.label("Use cached data or fetch fresh prices from Universalis?")
+        with ui.row().classes("justify-end w-full gap-2 mt-2"):
+            ui.button(f"Use cached ({age_str})", icon="cached",
+                      on_click=_use_cached).props("flat")
+            ui.button("Refresh prices", icon="refresh",
+                      on_click=_refresh)
+    dialog.open()
+
+
+async def _check_cache_freshness() -> tuple[bool, str]:
+    """Check Universalis cache and return (is_fresh, age_description).
+
+    Returns (True, "") if cache is fresh or empty.
+    Returns (False, "Xh ago") if cache exists but is stale.
+    """
+    age = cache.namespace_age("universalis")
+    if age is None:
+        return True, ""
+    ttl = cache.NAMESPACE_TTL.get("universalis", 10800)
+    if age <= ttl:
+        return True, _format_age(age)
+    return False, _format_age(age)
 
 
 def create_app():
@@ -151,7 +203,7 @@ def _build_craft_panel(state: dict):
 
     _craft_results = []
 
-    async def _run_scan():
+    async def _run_scan(allow_stale: bool = False):
         nonlocal _craft_results
         scan_btn.disable()
         spinner.visible = True
@@ -163,6 +215,7 @@ def _build_craft_panel(state: dict):
                 dc=state["dc"], world=state["world"],
                 gc_seals_free=state["gc_seals_free"],
                 no_cache=state["no_cache"],
+                allow_stale=allow_stale,
                 min_margin=min_margin["value"],
                 sort_by=sort_by["value"],
             )
@@ -189,7 +242,17 @@ def _build_craft_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    scan_btn.on_click(_run_scan)
+    async def _on_scan_click():
+        if state["no_cache"]:
+            await _run_scan(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await _run_scan(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, _run_scan)
+
+    scan_btn.on_click(_on_scan_click)
 
 
 def _build_vendor_panel(state: dict):
@@ -216,7 +279,7 @@ def _build_vendor_panel(state: dict):
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
-    async def _run_scan():
+    async def _run_scan(allow_stale: bool = False):
         scan_btn.disable()
         spinner.visible = True
         status.text = "Scanning..."
@@ -225,6 +288,7 @@ def _build_vendor_panel(state: dict):
                 vendor_arbitrage.scan,
                 dc=state["dc"], world=state["world"],
                 no_cache=state["no_cache"],
+                allow_stale=allow_stale,
                 min_markup=min_markup["value"],
                 min_velocity=min_velocity["value"],
             )
@@ -249,7 +313,17 @@ def _build_vendor_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    scan_btn.on_click(_run_scan)
+    async def _on_scan_click():
+        if state["no_cache"]:
+            await _run_scan(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await _run_scan(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, _run_scan)
+
+    scan_btn.on_click(_on_scan_click)
 
 
 def _build_cross_world_panel(state: dict):
@@ -278,7 +352,7 @@ def _build_cross_world_panel(state: dict):
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
-    async def _run_scan():
+    async def _run_scan(allow_stale: bool = False):
         scan_btn.disable()
         spinner.visible = True
         status.text = "Scanning..."
@@ -287,6 +361,7 @@ def _build_cross_world_panel(state: dict):
                 cross_world.scan,
                 dc=state["dc"],
                 no_cache=state["no_cache"],
+                allow_stale=allow_stale,
                 min_spread=min_spread["value"],
                 min_velocity=min_velocity["value"],
             )
@@ -313,7 +388,17 @@ def _build_cross_world_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    scan_btn.on_click(_run_scan)
+    async def _on_scan_click():
+        if state["no_cache"]:
+            await _run_scan(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await _run_scan(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, _run_scan)
+
+    scan_btn.on_click(_on_scan_click)
 
 
 def _build_gather_panel(state: dict):
@@ -360,7 +445,7 @@ def _build_gather_panel(state: dict):
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
-    async def _run_scan():
+    async def _run_scan(allow_stale: bool = False):
         scan_btn.disable()
         spinner.visible = True
         progress_bar.visible = True
@@ -376,6 +461,7 @@ def _build_gather_panel(state: dict):
                 gather_scan.scan,
                 dc=state["dc"], world=state["world"],
                 no_cache=state["no_cache"],
+                allow_stale=allow_stale,
                 min_price=min_price["value"],
                 min_velocity=min_velocity["value"],
                 min_level=min_level["value"],
@@ -407,7 +493,17 @@ def _build_gather_panel(state: dict):
             progress_bar.visible = False
             scan_btn.enable()
 
-    scan_btn.on_click(_run_scan)
+    async def _on_scan_click():
+        if state["no_cache"]:
+            await _run_scan(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await _run_scan(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, _run_scan)
+
+    scan_btn.on_click(_on_scan_click)
 
 
 def _build_discover_panel(state: dict):
@@ -445,7 +541,7 @@ def _build_discover_panel(state: dict):
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
-    async def _run_scan():
+    async def _run_scan(allow_stale: bool = False):
         scan_btn.disable()
         spinner.visible = True
         progress_bar.visible = True
@@ -461,6 +557,7 @@ def _build_discover_panel(state: dict):
                 discover.scan,
                 dc=state["dc"], world=state["world"],
                 no_cache=state["no_cache"],
+                allow_stale=allow_stale,
                 min_price=min_price["value"],
                 min_velocity=min_velocity["value"],
                 min_margin=min_margin["value"],
@@ -490,7 +587,17 @@ def _build_discover_panel(state: dict):
             progress_bar.visible = False
             scan_btn.enable()
 
-    scan_btn.on_click(_run_scan)
+    async def _on_scan_click():
+        if state["no_cache"]:
+            await _run_scan(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await _run_scan(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, _run_scan)
+
+    scan_btn.on_click(_on_scan_click)
 
 
 def _build_seeds_panel(state: dict):

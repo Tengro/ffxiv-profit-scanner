@@ -151,6 +151,7 @@ def fetch_prices(
     item_ids: list[int],
     dc: str,
     no_cache: bool = False,
+    allow_stale: bool = False,
     listings: int = 10,
     entries: int = 30,
 ) -> dict[int, PriceData]:
@@ -160,7 +161,7 @@ def fetch_prices(
     # Check cache first
     if not no_cache:
         for item_id in item_ids:
-            cached = cache.get("universalis", f"{dc}_{item_id}")
+            cached = cache.get("universalis", f"{dc}_{item_id}", allow_stale=allow_stale)
             if cached:
                 results[item_id] = _parse_item_data(item_id, cached)
             else:
