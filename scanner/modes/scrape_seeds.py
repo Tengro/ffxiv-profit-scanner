@@ -247,7 +247,6 @@ def _fetch_teamcraft_vendor_items() -> dict[int, int]:
 
     Returns {item_id: npc_price} for items in the VENDOR_PRICE_MIN..MAX range.
     """
-    print("    Downloading Teamcraft shops.json...")
     resp = requests.get(TEAMCRAFT_SHOPS_URL, timeout=30)
     resp.raise_for_status()
     shops = resp.json()
@@ -274,8 +273,6 @@ def _fetch_teamcraft_vendor_items() -> dict[int, int]:
         if VENDOR_PRICE_MIN <= price <= VENDOR_PRICE_MAX
         and item_id not in GC_SEAL_ITEMS
     }
-    print(f"    Found {len(gil_items)} total NPC vendor items, "
-          f"{len(filtered)} in {VENDOR_PRICE_MIN}-{VENDOR_PRICE_MAX} gil range")
     return filtered
 
 
@@ -287,9 +284,6 @@ def _check_vendor_velocity(
 ) -> list[dict]:
     """Batch-check Universalis for vendor items with sales activity."""
     item_ids = list(vendor_items.keys())
-    print(f"    Checking Universalis velocity for {len(item_ids)} vendor items "
-          f"({len(item_ids) // 100 + 1} batches)...")
-
     prices = universalis.fetch_prices(item_ids, dc, no_cache=no_cache, listings=0, entries=5)
 
     profitable = []

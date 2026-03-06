@@ -34,12 +34,23 @@ def get(namespace: str, key: str, allow_stale: bool = False) -> dict | None:
 
 
 def namespace_age(namespace: str) -> float | None:
-    """Return age in seconds of the most recent file in a namespace, or None if empty."""
+    """Return age in seconds of the most recent write in a namespace, or None if empty."""
+    meta_path = CACHE_DIR / namespace / "_last_updated.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text())
+            return time.time() - data.get("_cached_at", 0)
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback: check if namespace dir exists at all
     ns_dir = CACHE_DIR / namespace
-    if not ns_dir.exists():
+    if not ns_dir.exists() or not any(ns_dir.iterdir()):
         return None
+    # No metadata yet — scan once to bootstrap (will be fast next time)
     newest = 0.0
     for f in ns_dir.iterdir():
+        if f.name == "_last_updated.json":
+            continue
         try:
             data = json.loads(f.read_text())
             cached_at = data.get("_cached_at", 0)
@@ -47,16 +58,25 @@ def namespace_age(namespace: str) -> float | None:
                 newest = cached_at
         except (json.JSONDecodeError, OSError):
             continue
-    if newest == 0:
-        return None
-    return time.time() - newest
+    if newest > 0:
+        _write_namespace_meta(namespace, newest)
+        return time.time() - newest
+    return None
+
+
+def _write_namespace_meta(namespace: str, cached_at: float) -> None:
+    path = CACHE_DIR / namespace / "_last_updated.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"_cached_at": cached_at}))
 
 
 def put(namespace: str, key: str, payload: dict) -> None:
+    now = time.time()
     path = _cache_path(namespace, key)
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = {"_cached_at": time.time(), "payload": payload}
+    data = {"_cached_at": now, "payload": payload}
     path.write_text(json.dumps(data))
+    _write_namespace_meta(namespace, now)
 
 
 def clear(namespace: str | None = None) -> None:

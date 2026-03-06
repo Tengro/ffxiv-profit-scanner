@@ -1,13 +1,12 @@
 import json
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
 
 from scanner.api import garland, universalis
-from scanner.api.universalis import _request_with_retry
+from scanner.api.universalis import fetch_prices_lightweight
 from scanner.data.seeds import GC_SEAL_ITEMS
 from scanner.modes.scrape_seeds import SEEDS_PATH
 from scanner.pricing import calculate_margin
@@ -45,7 +44,7 @@ def scan(
     # Phase 2: Batch-query Universalis for velocity + price
     total_batches = len(all_item_ids) // 100 + 1
     _progress(2, f"Scanning prices (0/{total_batches} batches)...")
-    market_data = _batch_fetch_lightweight(
+    market_data = fetch_prices_lightweight(
         all_item_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
         on_batch=lambda done, total: _progress(2, f"Scanning prices ({done}/{total} batches)..."),
     )
@@ -167,70 +166,6 @@ def run(
     for result in results:
         print_margin_result(result, show_worlds=show_worlds)
 
-
-def _batch_fetch_lightweight(
-    item_ids: list[int],
-    dc: str,
-    no_cache: bool = False,
-    allow_stale: bool = False,
-    on_batch: callable = None,
-) -> dict[int, dict]:
-    """Fetch just averagePrice + velocity for all items. Cached per-item."""
-    from scanner import cache
-
-    result = {}
-    to_fetch = []
-
-    # Check cache first
-    if not no_cache:
-        for item_id in item_ids:
-            cached = cache.get("universalis", f"lite_{dc}_{item_id}", allow_stale=allow_stale)
-            if cached is not None:
-                result[item_id] = cached
-            else:
-                to_fetch.append(item_id)
-    else:
-        to_fetch = list(item_ids)
-
-    if not to_fetch:
-        if on_batch:
-            on_batch(1, 1)
-        return result
-
-    total_batches = (len(to_fetch) + 99) // 100
-    for i in range(0, len(to_fetch), 100):
-        batch = to_fetch[i:i + 100]
-        batch_num = i // 100 + 1
-        ids_str = ",".join(str(x) for x in batch)
-        try:
-            resp = _request_with_retry(
-                f"https://universalis.app/api/v2/{dc}/{ids_str}",
-                params={"listings": 0, "entries": 1},
-            )
-            data = resp.json()
-            if len(batch) == 1:
-                result[batch[0]] = data
-                if not no_cache:
-                    cache.put("universalis", f"lite_{dc}_{batch[0]}", data)
-            else:
-                for k, v in data.get("items", {}).items():
-                    item_id = int(k)
-                    result[item_id] = v
-                    if not no_cache:
-                        cache.put("universalis", f"lite_{dc}_{item_id}", v)
-        except requests.exceptions.Timeout:
-            print(f"  Warning: Batch {batch_num}/{total_batches} timed out after retries",
-                  file=sys.stderr)
-        except requests.exceptions.HTTPError as e:
-            print(f"  Warning: Batch {batch_num}/{total_batches} failed HTTP {e.response.status_code} after retries",
-                  file=sys.stderr)
-        except Exception as e:
-            print(f"  Warning: Batch {batch_num}/{total_batches} failed: {e}",
-                  file=sys.stderr)
-        if on_batch and batch_num % 5 == 0:
-            on_batch(batch_num, total_batches)
-        time.sleep(0.25)
-    return result
 
 
 def _save_discovered(

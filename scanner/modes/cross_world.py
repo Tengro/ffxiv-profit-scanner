@@ -1,6 +1,8 @@
 import sys
+from collections import defaultdict
 
 from scanner.api import garland, universalis
+from scanner.api.universalis import _robust_average
 from scanner.data.seeds import get_all_workshop_ids, get_vendor_items, get_vendor_seed_ids
 from scanner.output import print_header, print_cross_world_result
 
@@ -55,9 +57,24 @@ def scan(
 
         if not price_data.recent_sales:
             continue
-        best_sale = max(price_data.recent_sales, key=lambda s: s["price"])
-        expensive_world = best_sale["world_name"]
-        expensive_price = best_sale["price"]
+
+        # Per-world robust average of recent sales
+        world_sales = defaultdict(list)
+        for sale in price_data.recent_sales:
+            if sale["world_name"] and sale["price"] > 0:
+                world_sales[sale["world_name"]].append(sale["price"])
+
+        if not world_sales:
+            continue
+
+        world_avgs = {w: _robust_average(prices_list) for w, prices_list in world_sales.items()}
+        world_avgs = {w: avg for w, avg in world_avgs.items() if avg > 0}
+
+        if not world_avgs:
+            continue
+
+        expensive_world = max(world_avgs, key=world_avgs.get)
+        expensive_price = world_avgs[expensive_world]
 
         if cheap_price <= 0:
             continue

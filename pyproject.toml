@@ -1,0 +1,13 @@
+[project]
+name = "ffxiv-profit-scanner"
+version = "0.5.0"
+description = "FFXIV Market Board profit scanner — find profitable crafting, vendor arbitrage, cross-world spreads, and gathering opportunities"
+requires-python = ">=3.10"
+dependencies = ["requests"]
+
+[project.optional-dependencies]
+gui = ["nicegui", "pywebview"]
+dev = ["pytest"]
+
+[project.scripts]
+ffxiv-scanner = "ffxiv_scanner:main"

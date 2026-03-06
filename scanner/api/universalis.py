@@ -1,5 +1,6 @@
 import statistics
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -13,15 +14,17 @@ OUTLIER_FACTOR = 3.0  # Sales more than 3x away from median are outliers
 MAX_RETRIES = 3
 
 _last_request_time = 0.0
+_rate_lock = threading.Lock()
 RATE_LIMIT_MS = 250  # 250ms between requests — gentle on Universalis
 
 
 def _rate_limit():
     global _last_request_time
-    elapsed = time.time() - _last_request_time
-    if elapsed < RATE_LIMIT_MS / 1000:
-        time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
-    _last_request_time = time.time()
+    with _rate_lock:
+        elapsed = time.time() - _last_request_time
+        if elapsed < RATE_LIMIT_MS / 1000:
+            time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
+        _last_request_time = time.time()
 
 
 def _request_with_retry(url: str, params: dict = None) -> requests.Response:
@@ -193,5 +196,68 @@ def fetch_prices(
                 if not no_cache:
                     cache.put("universalis", f"{dc}_{item_id}", item_data)
                 results[item_id] = _parse_item_data(item_id, item_data)
+
+
+def fetch_prices_lightweight(
+    item_ids: list[int],
+    dc: str,
+    no_cache: bool = False,
+    allow_stale: bool = False,
+    on_batch: callable = None,
+) -> dict[int, dict]:
+    """Fetch just averagePrice + velocity for items. Cached per-item under lite_ prefix."""
+    result = {}
+    to_fetch = []
+
+    if not no_cache:
+        for item_id in item_ids:
+            cached = cache.get("universalis", f"lite_{dc}_{item_id}", allow_stale=allow_stale)
+            if cached is not None:
+                result[item_id] = cached
+            else:
+                to_fetch.append(item_id)
+    else:
+        to_fetch = list(item_ids)
+
+    if not to_fetch:
+        if on_batch:
+            on_batch(1, 1)
+        return result
+
+    total_batches = (len(to_fetch) + 99) // 100
+    for i in range(0, len(to_fetch), MAX_BATCH_SIZE):
+        batch = to_fetch[i:i + MAX_BATCH_SIZE]
+        batch_num = i // MAX_BATCH_SIZE + 1
+        ids_str = ",".join(str(x) for x in batch)
+        try:
+            resp = _request_with_retry(
+                f"{BASE_URL}/{dc}/{ids_str}",
+                params={"listings": 0, "entries": 1},
+            )
+            data = resp.json()
+            if len(batch) == 1:
+                result[batch[0]] = data
+                if not no_cache:
+                    cache.put("universalis", f"lite_{dc}_{batch[0]}", data)
+            else:
+                for k, v in data.get("items", {}).items():
+                    item_id = int(k)
+                    result[item_id] = v
+                    if not no_cache:
+                        cache.put("universalis", f"lite_{dc}_{item_id}", v)
+        except requests.exceptions.Timeout:
+            print(f"  Warning: Batch {batch_num}/{total_batches} timed out after retries",
+                  file=sys.stderr)
+        except requests.exceptions.HTTPError as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} HTTP {e.response.status_code} after retries",
+                  file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} failed: {e}",
+                  file=sys.stderr)
+        if on_batch and batch_num % 5 == 0:
+            on_batch(batch_num, total_batches)
+        time.sleep(RATE_LIMIT_MS / 1000)
+
+    return result
 
     return results

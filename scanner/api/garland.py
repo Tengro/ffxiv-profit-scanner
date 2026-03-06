@@ -1,3 +1,4 @@
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -14,15 +15,17 @@ FISHING_URL = f"{BASE_URL}/db/doc/fishing/en/2/{{spot_id}}.json"
 SEARCH_URL = f"{BASE_URL}/api/search.php"
 
 _last_request_time = 0.0
+_rate_lock = threading.Lock()
 RATE_LIMIT_MS = 200
 
 
 def _rate_limit():
     global _last_request_time
-    elapsed = time.time() - _last_request_time
-    if elapsed < RATE_LIMIT_MS / 1000:
-        time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
-    _last_request_time = time.time()
+    with _rate_lock:
+        elapsed = time.time() - _last_request_time
+        if elapsed < RATE_LIMIT_MS / 1000:
+            time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
+        _last_request_time = time.time()
 
 
 @dataclass
@@ -58,6 +61,7 @@ class GarlandItem:
     is_craftable: bool
     is_fc_workshop: bool
     craft_job: int
+    craft_yield: int = 1
     ingredients: list[Ingredient] = field(default_factory=list)
     ingredient_items: dict[int, dict] = field(default_factory=dict)
     gathering_nodes: list[GatheringNode] = field(default_factory=list)
@@ -71,11 +75,13 @@ def _parse_item(data: dict, no_cache: bool = False) -> GarlandItem:
     is_craftable = len(craft_list) > 0
     is_fc_workshop = False
     craft_job = 0
+    craft_yield = 1
     ingredients = []
 
     if is_craftable:
         craft = craft_list[0]
         craft_job = craft.get("job", 0)
+        craft_yield = craft.get("yield", 1)
         is_fc_workshop = craft.get("fc", 0) == 1 and craft_job == 0
 
         # For FC workshop items, all phases are in a single craft entry's ingredients
@@ -159,6 +165,7 @@ def _parse_item(data: dict, no_cache: bool = False) -> GarlandItem:
         is_craftable=is_craftable,
         is_fc_workshop=is_fc_workshop,
         craft_job=craft_job,
+        craft_yield=craft_yield,
         ingredients=ingredients,
         ingredient_items=ingredient_items,
         gathering_nodes=gathering_nodes,
@@ -246,10 +253,13 @@ def fetch_gathering_items(
         node_items = _fetch_node_items(node_id, source_type, no_cache)
         for item_entry in node_items:
             item_id = item_entry["id"]
-            item_level = item_entry.get("lvl", level)
+            item_level = item_entry.get("lvl") or level  # Fall back to node level
+            name = item_entry.get("name", "")
+            if not name:
+                continue  # Skip unnamed/invalid items
             entry = {
                 "item_id": item_id,
-                "name": item_entry.get("name", ""),
+                "name": name,
                 "job": job,
                 "level": item_level,
                 "location": location,
@@ -320,10 +330,10 @@ def _fetch_node_items(node_id: int, source_type: str, no_cache: bool) -> list[di
     for item in raw_items:
         if isinstance(item, dict):
             item_id = item.get("id")
-            lvl = item.get("lvl", 0)
+            lvl = item.get("lvl")  # None if not present (mining/botany nodes)
         else:
             item_id = item
-            lvl = 0
+            lvl = None
         if item_id is not None:
             result.append({
                 "id": int(item_id),

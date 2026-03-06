@@ -59,6 +59,12 @@ def _load_seeds() -> dict | None:
     return None
 
 
+def reload_seeds() -> None:
+    """Force reload seeds from disk on next access."""
+    global _loaded_seeds
+    _loaded_seeds = None
+
+
 def get_all_workshop_ids() -> list[int]:
     seeds = _load_seeds()
     if seeds and "workshop" in seeds:

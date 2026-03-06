@@ -107,7 +107,7 @@ def resolve_ingredient_cost(
                 )
                 sub_cost += sub_resolved.total_cost
             if sub_cost > 0 and ppu > 0:
-                craft_ppu = sub_cost / 1  # cost per single craft
+                craft_ppu = sub_cost / sub_item.craft_yield
                 if craft_ppu < ppu:
                     cost.craft_alternative = craft_ppu
                     cost.craft_savings_pct = ((ppu - craft_ppu) / ppu) * 100
@@ -136,15 +136,17 @@ def calculate_margin(
     velocity = sell_data.nq_sale_velocity
 
     ingredient_costs = []
-    craft_cost = 0
+    craft_cost_total = 0
     for ing in item.ingredients:
         ing_cost = resolve_ingredient_cost(ing, prices, garland_items, gc_seals_free)
         ingredient_costs.append(ing_cost)
-        craft_cost += ing_cost.total_cost
+        craft_cost_total += ing_cost.total_cost
 
-    if craft_cost <= 0:
+    if craft_cost_total <= 0:
         return None
 
+    # Divide by yield — one craft may produce multiple units
+    craft_cost = craft_cost_total / item.craft_yield
     margin = revenue - craft_cost
     margin_pct = (margin / craft_cost) * 100
     profit_per_day = margin * velocity

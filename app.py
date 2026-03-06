@@ -4,7 +4,8 @@
 from nicegui import ui, run
 
 from scanner.modes import craft_scan, vendor_arbitrage, cross_world, discover, gather_scan, scrape_seeds
-from scanner.data.seeds import _load_seeds, SEEDS_PATH
+from scanner.data.seeds import _load_seeds, reload_seeds, SEEDS_PATH
+from scanner.output import gil
 from scanner import cache
 
 # Known FFXIV data centers
@@ -14,12 +15,6 @@ DATA_CENTERS = [
     "Elemental", "Gaia", "Mana", "Meteor",  # JP
     "Materia",  # OCE
 ]
-
-
-def gil(amount: float) -> str:
-    if amount >= 0:
-        return f"{amount:,.0f}"
-    return f"-{abs(amount):,.0f}"
 
 
 def _format_age(seconds: float) -> str:
@@ -73,6 +68,20 @@ async def _check_cache_freshness() -> tuple[bool, str]:
     return False, _format_age(age)
 
 
+def with_cache_check(state: dict, run_fn):
+    """Wrap a scan function with stale-cache dialog logic."""
+    async def _on_click():
+        if state["no_cache"]:
+            await run_fn(allow_stale=False)
+            return
+        is_fresh, age_str = await _check_cache_freshness()
+        if is_fresh:
+            await run_fn(allow_stale=False)
+        else:
+            await _show_stale_dialog(age_str, run_fn)
+    return _on_click
+
+
 def create_app():
     # --- Shared state ---
     state = {
@@ -101,6 +110,12 @@ def create_app():
                   on_change=lambda e: state.update(gc_seals_free=e.value))
         ui.switch("No Cache",
                   on_change=lambda e: state.update(no_cache=e.value))
+
+        async def _clear_cache():
+            await run.io_bound(cache.clear)
+            ui.notify("Cache cleared!", type="positive")
+
+        ui.button("Clear Cache", icon="delete_sweep", on_click=_clear_cache).props("flat dense")
 
     # --- Tabs ---
     with ui.tabs().classes("w-full") as tabs:
@@ -242,17 +257,7 @@ def _build_craft_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    async def _on_scan_click():
-        if state["no_cache"]:
-            await _run_scan(allow_stale=False)
-            return
-        is_fresh, age_str = await _check_cache_freshness()
-        if is_fresh:
-            await _run_scan(allow_stale=False)
-        else:
-            await _show_stale_dialog(age_str, _run_scan)
-
-    scan_btn.on_click(_on_scan_click)
+    scan_btn.on_click(with_cache_check(state, _run_scan))
 
 
 def _build_vendor_panel(state: dict):
@@ -313,17 +318,7 @@ def _build_vendor_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    async def _on_scan_click():
-        if state["no_cache"]:
-            await _run_scan(allow_stale=False)
-            return
-        is_fresh, age_str = await _check_cache_freshness()
-        if is_fresh:
-            await _run_scan(allow_stale=False)
-        else:
-            await _show_stale_dialog(age_str, _run_scan)
-
-    scan_btn.on_click(_on_scan_click)
+    scan_btn.on_click(with_cache_check(state, _run_scan))
 
 
 def _build_cross_world_panel(state: dict):
@@ -388,17 +383,7 @@ def _build_cross_world_panel(state: dict):
             spinner.visible = False
             scan_btn.enable()
 
-    async def _on_scan_click():
-        if state["no_cache"]:
-            await _run_scan(allow_stale=False)
-            return
-        is_fresh, age_str = await _check_cache_freshness()
-        if is_fresh:
-            await _run_scan(allow_stale=False)
-        else:
-            await _show_stale_dialog(age_str, _run_scan)
-
-    scan_btn.on_click(_on_scan_click)
+    scan_btn.on_click(with_cache_check(state, _run_scan))
 
 
 def _build_gather_panel(state: dict):
@@ -439,9 +424,12 @@ def _build_gather_panel(state: dict):
         {"name": "level", "label": "Level", "field": "level", "sortable": True},
         {"name": "location", "label": "Location", "field": "location", "sortable": True, "align": "left"},
         {"name": "timed", "label": "Timed", "field": "timed", "sortable": True},
-        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True},
-        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True},
-        {"name": "gil_per_day", "label": "Gil/day", "field": "gil_per_day", "sortable": True},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True,
+         ":format": "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True,
+         ":format": "val => val != null ? val.toFixed(1) : ''"},
+        {"name": "gil_per_day", "label": "Gil/day", "field": "gil_per_day", "sortable": True,
+         ":format": "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -477,9 +465,9 @@ def _build_gather_panel(state: dict):
                     "level": r["level"],
                     "location": r["location"],
                     "timed": "Yes" if r["is_timed"] else "",
-                    "mb_price": gil(r["mb_price"]),
-                    "velocity": f"{r['velocity']:.1f}",
-                    "gil_per_day": gil(r["gil_per_day"]),
+                    "mb_price": r["mb_price"],
+                    "velocity": r["velocity"],
+                    "gil_per_day": r["gil_per_day"],
                 }
                 for r in results
             ]
@@ -493,17 +481,7 @@ def _build_gather_panel(state: dict):
             progress_bar.visible = False
             scan_btn.enable()
 
-    async def _on_scan_click():
-        if state["no_cache"]:
-            await _run_scan(allow_stale=False)
-            return
-        is_fresh, age_str = await _check_cache_freshness()
-        if is_fresh:
-            await _run_scan(allow_stale=False)
-        else:
-            await _show_stale_dialog(age_str, _run_scan)
-
-    scan_btn.on_click(_on_scan_click)
+    scan_btn.on_click(with_cache_check(state, _run_scan))
 
 
 def _build_discover_panel(state: dict):
@@ -587,17 +565,7 @@ def _build_discover_panel(state: dict):
             progress_bar.visible = False
             scan_btn.enable()
 
-    async def _on_scan_click():
-        if state["no_cache"]:
-            await _run_scan(allow_stale=False)
-            return
-        is_fresh, age_str = await _check_cache_freshness()
-        if is_fresh:
-            await _run_scan(allow_stale=False)
-        else:
-            await _show_stale_dialog(age_str, _run_scan)
-
-    scan_btn.on_click(_on_scan_click)
+    scan_btn.on_click(with_cache_check(state, _run_scan))
 
 
 def _build_seeds_panel(state: dict):
@@ -656,9 +624,7 @@ def _build_seeds_panel(state: dict):
                 on_progress=_on_progress,
             )
             scrape_seeds.save_seeds(seeds)
-            # Reset cached seeds so they reload
-            import scanner.data.seeds as seeds_mod
-            seeds_mod._loaded_seeds = None
+            reload_seeds()
 
             progress_label.text = "Seeds updated successfully!"
             ui.notify("Seeds refreshed!", type="positive")
