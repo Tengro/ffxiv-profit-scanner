@@ -467,9 +467,19 @@ def _build_seeds_panel(state: dict):
     scrape_btn.on_click(_run_scrape)
 
 
+def _can_use_native() -> bool:
+    try:
+        import webview
+        # Check if a GUI backend is actually available (GTK or QT)
+        from webview import guilib
+        guilib.initialize()
+        return True
+    except Exception:
+        return False
+
+
 create_app()
-try:
-    import webview  # noqa: F401
+if _can_use_native():
     ui.run(title="FFXIV Market Scanner", port=8080, reload=False, native=True)
-except ImportError:
+else:
     ui.run(title="FFXIV Market Scanner", port=8080, reload=False)

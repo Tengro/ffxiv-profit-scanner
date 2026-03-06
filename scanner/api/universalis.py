@@ -1,4 +1,5 @@
 import statistics
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -9,9 +10,10 @@ from scanner import cache
 BASE_URL = "https://universalis.app/api/v2"
 MAX_BATCH_SIZE = 100
 OUTLIER_FACTOR = 3.0  # Sales more than 3x away from median are outliers
+MAX_RETRIES = 3
 
 _last_request_time = 0.0
-RATE_LIMIT_MS = 100
+RATE_LIMIT_MS = 250  # 250ms between requests — gentle on Universalis
 
 
 def _rate_limit():
@@ -20,6 +22,36 @@ def _rate_limit():
     if elapsed < RATE_LIMIT_MS / 1000:
         time.sleep(RATE_LIMIT_MS / 1000 - elapsed)
     _last_request_time = time.time()
+
+
+def _request_with_retry(url: str, params: dict = None) -> requests.Response:
+    """GET with exponential backoff for 429/5xx errors."""
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+        except requests.exceptions.Timeout:
+            wait = 2 ** (attempt + 1)
+            print(f"  Universalis timeout, retrying in {wait}s ({attempt + 1}/{MAX_RETRIES})",
+                  file=sys.stderr)
+            time.sleep(wait)
+            continue
+
+        if resp.status_code == 200:
+            return resp
+        if resp.status_code == 429:
+            wait = int(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
+        elif resp.status_code >= 500:
+            wait = 2 ** (attempt + 1)
+        else:
+            resp.raise_for_status()
+        print(f"  Universalis HTTP {resp.status_code}, retrying in {wait}s ({attempt + 1}/{MAX_RETRIES})",
+              file=sys.stderr)
+        time.sleep(wait)
+
+    # Final attempt — let it raise
+    resp = requests.get(url, params=params, timeout=30)
+    resp.raise_for_status()
+    return resp
 
 
 @dataclass
@@ -143,12 +175,7 @@ def fetch_prices(
 
         ids_str = ",".join(str(x) for x in batch)
         url = f"{BASE_URL}/{dc}/{ids_str}"
-        resp = requests.get(
-            url,
-            params={"listings": listings, "entries": entries},
-            timeout=30,
-        )
-        resp.raise_for_status()
+        resp = _request_with_retry(url, params={"listings": listings, "entries": entries})
         data = resp.json()
 
         if len(batch) == 1:

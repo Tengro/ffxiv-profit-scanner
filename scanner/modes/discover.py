@@ -7,6 +7,7 @@ from pathlib import Path
 import requests
 
 from scanner.api import garland, universalis
+from scanner.api.universalis import _request_with_retry
 from scanner.data.seeds import GC_SEAL_ITEMS
 from scanner.modes.scrape_seeds import SEEDS_PATH
 from scanner.pricing import calculate_margin
@@ -41,8 +42,12 @@ def scan(
     _progress(1, f"{len(all_item_ids)} marketable items")
 
     # Phase 2: Batch-query Universalis for velocity + price
-    _progress(2, f"Scanning prices ({len(all_item_ids) // 100 + 1} batches)...")
-    market_data = _batch_fetch_lightweight(all_item_ids, dc)
+    total_batches = len(all_item_ids) // 100 + 1
+    _progress(2, f"Scanning prices (0/{total_batches} batches)...")
+    market_data = _batch_fetch_lightweight(
+        all_item_ids, dc,
+        on_batch=lambda done, total: _progress(2, f"Scanning prices ({done}/{total} batches)..."),
+    )
 
     candidates = {}
     for item_id, data in market_data.items():
@@ -60,7 +65,7 @@ def scan(
     craftable_ids = []
 
     for i, item_id in enumerate(candidates):
-        if (i + 1) % 50 == 0:
+        if (i + 1) % 10 == 0:
             _progress(3, f"Checking recipes... {i + 1}/{len(candidates)}")
         try:
             item = garland.fetch_item(item_id, no_cache=no_cache)
@@ -163,27 +168,38 @@ def run(
 def _batch_fetch_lightweight(
     item_ids: list[int],
     dc: str,
+    on_batch: callable = None,
 ) -> dict[int, dict]:
     """Fetch just averagePrice + velocity for all items. Minimal data."""
     result = {}
+    total_batches = len(item_ids) // 100 + 1
     for i in range(0, len(item_ids), 100):
         batch = item_ids[i:i + 100]
+        batch_num = i // 100 + 1
         ids_str = ",".join(str(x) for x in batch)
         try:
-            resp = requests.get(
-                f"https://universalis.app/api/v2/{dc}/{ids_str}?listings=0&entries=1",
-                timeout=30,
+            resp = _request_with_retry(
+                f"https://universalis.app/api/v2/{dc}/{ids_str}",
+                params={"listings": 0, "entries": 1},
             )
-            resp.raise_for_status()
             data = resp.json()
             if len(batch) == 1:
                 result[batch[0]] = data
             else:
                 for k, v in data.get("items", {}).items():
                     result[int(k)] = v
-        except Exception:
-            pass
-        time.sleep(0.1)
+        except requests.exceptions.Timeout:
+            print(f"  Warning: Batch {batch_num}/{total_batches} timed out after retries",
+                  file=sys.stderr)
+        except requests.exceptions.HTTPError as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} failed HTTP {e.response.status_code} after retries",
+                  file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} failed: {e}",
+                  file=sys.stderr)
+        if on_batch and batch_num % 5 == 0:
+            on_batch(batch_num, total_batches)
+        time.sleep(0.25)
     return result
 
 
