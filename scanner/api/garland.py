@@ -7,6 +7,10 @@ from scanner import cache
 
 BASE_URL = "https://garlandtools.org"
 ITEM_URL = f"{BASE_URL}/db/doc/item/en/3/{{item_id}}.json"
+NODE_BROWSE_URL = f"{BASE_URL}/db/doc/browse/en/2/node.json"
+FISHING_BROWSE_URL = f"{BASE_URL}/db/doc/browse/en/2/fishing.json"
+NODE_URL = f"{BASE_URL}/db/doc/node/en/2/{{node_id}}.json"
+FISHING_URL = f"{BASE_URL}/db/doc/fishing/en/2/{{spot_id}}.json"
 SEARCH_URL = f"{BASE_URL}/api/search.php"
 
 _last_request_time = 0.0
@@ -179,6 +183,157 @@ def fetch_item(item_id: int, no_cache: bool = False) -> GarlandItem:
         cache.put("garland", f"full_{item_id}", data)
 
     return _parse_item(data, no_cache=no_cache)
+
+
+def fetch_gathering_items(
+    job_levels: dict[str, int],
+    no_cache: bool = False,
+    on_progress: callable = None,
+) -> list[dict]:
+    """Get all gatherable item IDs filtered by job type and level.
+
+    Uses the node/fishing browse endpoints to find matching nodes,
+    then fetches each node to get its item IDs.
+
+    job_levels: e.g. {"MIN": 80, "BTN": 60}
+    Returns list of dicts: {item_id, name, job, level, location, is_timed}
+    """
+    def _prog(msg):
+        if on_progress:
+            on_progress(msg)
+
+    # Fetch node browse (cached permanently under garland namespace)
+    _prog("Fetching gathering node index...")
+    node_browse = _fetch_browse("node_browse", NODE_BROWSE_URL, no_cache)
+    fishing_browse = _fetch_browse("fishing_browse", FISHING_BROWSE_URL, no_cache)
+
+    # Filter nodes by job type and level
+    matching_nodes = []  # (node_id, job, level, name, is_timed, source_type)
+    for node in node_browse:
+        node_type = node.get("t", -1)
+        job = _NODE_TYPE_JOB.get(node_type)
+        if not job or job not in job_levels:
+            continue
+        level = node.get("l", 0)
+        if level > job_levels[job]:
+            continue
+        lt = node.get("lt", "")
+        matching_nodes.append((
+            node["i"], job, level, node.get("n", ""),
+            lt in ("Unspoiled", "Ephemeral", "Legendary", "Concealed"),
+            "node",
+        ))
+
+    if "FSH" in job_levels:
+        for spot in fishing_browse:
+            level = spot.get("l", 0)
+            if level > job_levels["FSH"]:
+                continue
+            matching_nodes.append((
+                spot["i"], "FSH", level, spot.get("n", ""),
+                False, "fishing",
+            ))
+
+    _prog(f"Found {len(matching_nodes)} matching nodes, fetching items...")
+
+    # Fetch each matching node to get item IDs
+    # item_id -> best (lowest level) node info
+    items: dict[int, dict] = {}
+    for i, (node_id, job, level, location, is_timed, source_type) in enumerate(matching_nodes):
+        if (i + 1) % 20 == 0:
+            _prog(f"Fetching node items... {i + 1}/{len(matching_nodes)}")
+
+        node_items = _fetch_node_items(node_id, source_type, no_cache)
+        for item_entry in node_items:
+            item_id = item_entry["id"]
+            item_level = item_entry.get("lvl", level)
+            entry = {
+                "item_id": item_id,
+                "name": item_entry.get("name", ""),
+                "job": job,
+                "level": item_level,
+                "location": location,
+                "is_timed": is_timed,
+            }
+            # Keep the lowest-level node for each item
+            if item_id not in items or item_level < items[item_id]["level"]:
+                items[item_id] = entry
+
+    _prog(f"Found {len(items)} unique gatherable items")
+    return list(items.values())
+
+
+def _fetch_browse(cache_key: str, url: str, no_cache: bool) -> list[dict]:
+    """Fetch a Garland browse endpoint (cached permanently)."""
+    if not no_cache:
+        cached = cache.get("garland", cache_key)
+        if cached:
+            return cached
+
+    _rate_limit()
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    data = resp.json().get("browse", [])
+
+    if not no_cache:
+        cache.put("garland", cache_key, data)
+    return data
+
+
+def _fetch_node_items(node_id: int, source_type: str, no_cache: bool) -> list[dict]:
+    """Fetch a single node/fishing-spot and return its items with names."""
+    cache_key = f"{source_type}_{node_id}"
+    if not no_cache:
+        cached = cache.get("garland", cache_key)
+        if cached is not None:
+            return cached
+
+    _rate_limit()
+    if source_type == "fishing":
+        url = FISHING_URL.format(spot_id=node_id)
+    else:
+        url = NODE_URL.format(node_id=node_id)
+
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        if not no_cache:
+            cache.put("garland", cache_key, [])
+        return []
+
+    # Get item IDs and levels from the node/fishing data
+    node_data = data.get(source_type, data.get("node", {}))
+    raw_items = node_data.get("items", [])
+
+    # Build name lookup from partials
+    name_map = {}
+    for partial in data.get("partials", []):
+        if partial.get("type") == "item":
+            obj = partial.get("obj", {})
+            pid = obj.get("i", partial.get("id"))
+            if pid is not None:
+                name_map[int(pid)] = obj.get("n", "")
+
+    result = []
+    for item in raw_items:
+        if isinstance(item, dict):
+            item_id = item.get("id")
+            lvl = item.get("lvl", 0)
+        else:
+            item_id = item
+            lvl = 0
+        if item_id is not None:
+            result.append({
+                "id": int(item_id),
+                "lvl": lvl,
+                "name": name_map.get(int(item_id), ""),
+            })
+
+    if not no_cache:
+        cache.put("garland", cache_key, result)
+    return result
 
 
 def search_items(query: str) -> list[dict]:

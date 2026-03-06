@@ -325,7 +325,7 @@ def _build_gather_panel(state: dict):
 
     ui.label(
         "Set your gathering job levels (0 = skip that job). "
-        "Runs faster after Discovery mode has cached price data."
+        "Scans only gatherable items — fast even on first run."
     ).classes("text-info p-2 bg-blue-1 rounded w-full")
 
     with ui.row().classes("items-center gap-4 p-2"):

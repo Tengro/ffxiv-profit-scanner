@@ -1,10 +1,9 @@
 import sys
+import time
 
 from scanner.api import garland, universalis
-from scanner.modes.discover import _batch_fetch_lightweight, MARKETABLE_URL
+from scanner.api.universalis import _request_with_retry
 from scanner.output import print_header, print_gather_result
-
-import requests
 
 
 def scan(
@@ -20,6 +19,9 @@ def scan(
     on_progress: callable = None,
 ) -> list[dict]:
     """Find profitable gathering opportunities.
+
+    Uses Garland node browse to find gatherable items first (fast),
+    then fetches prices only for those items from Universalis.
 
     Level params: 0 = skip that job, >0 = show items up to that level.
     """
@@ -40,73 +42,50 @@ def scan(
         _progress(1, "No gathering jobs selected (all levels are 0)")
         return []
 
-    # Phase 1: Get marketable items + prices (reuses cache from discover)
-    _progress(1, "Fetching marketable items...")
-    resp = requests.get(MARKETABLE_URL, timeout=30)
-    resp.raise_for_status()
-    all_item_ids = resp.json()
+    # Phase 1: Get gatherable items from Garland (node-first approach)
+    _progress(1, "Scanning gathering nodes...")
+    gather_items = garland.fetch_gathering_items(
+        job_levels,
+        no_cache=no_cache,
+        on_progress=lambda msg: _progress(1, msg),
+    )
+    if not gather_items:
+        _progress(1, "No gatherable items found for selected jobs/levels")
+        return []
 
-    total_batches = len(all_item_ids) // 100 + 1
-    _progress(1, f"Scanning prices (0/{total_batches} batches)...")
-    market_data = _batch_fetch_lightweight(
-        all_item_ids, dc,
-        on_batch=lambda done, total: _progress(1, f"Scanning prices ({done}/{total} batches)..."),
+    _progress(1, f"Found {len(gather_items)} gatherable items, fetching prices...")
+
+    # Phase 2: Fetch prices from Universalis (only for gatherable items)
+    item_ids = [g["item_id"] for g in gather_items]
+    _progress(2, f"Fetching prices for {len(item_ids)} items...")
+
+    price_data = _batch_fetch_prices(
+        item_ids, dc,
+        on_batch=lambda done, total: _progress(2, f"Fetching prices ({done}/{total} batches)..."),
     )
 
-    # Filter candidates by price and velocity
-    candidates = []
-    for item_id, data in market_data.items():
-        avg_price = data.get("averagePrice", 0)
-        velocity = data.get("regularSaleVelocity", 0)
-        if avg_price >= min_price and velocity >= min_velocity:
-            candidates.append(item_id)
-
-    _progress(2, f"{len(candidates)} candidates, checking gathering data...")
-
-    # Phase 2: Check Garland for gathering nodes
-    # Use world-specific prices if available for more accurate revenue
-    price_region = world or dc
+    # Build results
     results = []
-    for i, item_id in enumerate(candidates):
-        if (i + 1) % 20 == 0:
-            _progress(2, f"Checking items... {i + 1}/{len(candidates)}")
-        try:
-            item = garland.fetch_item(item_id, no_cache=no_cache)
-        except Exception:
+    for g in gather_items:
+        item_id = g["item_id"]
+        mdata = price_data.get(item_id)
+        if not mdata:
             continue
 
-        if not item.is_gathered:
-            continue
-
-        # Find the best matching node for user's job levels
-        best_node = None
-        for node in item.gathering_nodes:
-            if node.job not in job_levels:
-                continue
-            if node.level > job_levels[node.job]:
-                continue
-            if best_node is None or node.level < best_node.level:
-                best_node = node
-
-        if not best_node:
-            continue
-
-        # Get price data (from lightweight scan)
-        mdata = market_data.get(item_id, {})
         avg_price = mdata.get("averagePrice", 0)
         velocity = mdata.get("regularSaleVelocity", 0)
-        if avg_price <= 0 or velocity <= 0:
+        if avg_price < min_price or velocity < min_velocity:
             continue
 
         gil_per_day = avg_price * 0.95 * velocity
 
         results.append({
             "item_id": item_id,
-            "name": item.name,
-            "job": best_node.job,
-            "level": best_node.level,
-            "location": best_node.name,
-            "is_timed": best_node.is_timed,
+            "name": g["name"],
+            "job": g["job"],
+            "level": g["level"],
+            "location": g["location"],
+            "is_timed": g["is_timed"],
             "mb_price": avg_price,
             "velocity": velocity,
             "gil_per_day": gil_per_day,
@@ -139,6 +118,47 @@ def scan(
 
     _progress(3, f"Done — {len(results)} items")
     return results
+
+
+def _batch_fetch_prices(
+    item_ids: list[int],
+    dc: str,
+    on_batch: callable = None,
+) -> dict[int, dict]:
+    """Fetch lightweight price data for a list of items."""
+    import requests
+
+    result = {}
+    total_batches = (len(item_ids) + 99) // 100
+    for i in range(0, len(item_ids), 100):
+        batch = item_ids[i:i + 100]
+        batch_num = i // 100 + 1
+        ids_str = ",".join(str(x) for x in batch)
+        try:
+            resp = _request_with_retry(
+                f"https://universalis.app/api/v2/{dc}/{ids_str}",
+                params={"listings": 0, "entries": 1},
+            )
+            data = resp.json()
+            if len(batch) == 1:
+                result[batch[0]] = data
+            else:
+                for k, v in data.get("items", {}).items():
+                    result[int(k)] = v
+        except requests.exceptions.Timeout:
+            print(f"  Warning: Batch {batch_num}/{total_batches} timed out",
+                  file=sys.stderr)
+        except requests.exceptions.HTTPError as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} HTTP {e.response.status_code}",
+                  file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: Batch {batch_num}/{total_batches} failed: {e}",
+                  file=sys.stderr)
+        if on_batch and batch_num % 5 == 0:
+            on_batch(batch_num, total_batches)
+        time.sleep(0.25)
+
+    return result
 
 
 def run(
