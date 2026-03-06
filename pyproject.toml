@@ -9,5 +9,8 @@ dependencies = ["requests"]
 gui = ["nicegui", "pywebview"]
 dev = ["pytest"]
 
+[tool.setuptools.packages.find]
+include = ["scanner*"]
+
 [project.scripts]
 ffxiv-scanner = "ffxiv_scanner:main"
