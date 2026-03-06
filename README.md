@@ -138,7 +138,7 @@ For each ingredient that has its own crafting recipe, a 1-level recursive check 
 API responses are cached to `~/.ffxiv-scanner/`:
 
 - **Garland Tools** (recipes, item data): cached indefinitely (static between patches)
-- **Universalis** (market prices): cached for 1 hour
+- **Universalis** (market prices): cached for 3 hours
 
 Use `--no-cache` to force fresh data.
 

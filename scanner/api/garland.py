@@ -32,6 +32,20 @@ class Ingredient:
 
 
 @dataclass
+class GatheringNode:
+    node_id: int
+    name: str
+    level: int
+    job: str         # "MIN", "BTN", "FSH"
+    is_timed: bool   # Unspoiled or Ephemeral
+    zone_id: int = 0
+
+
+# Node type -> job mapping
+_NODE_TYPE_JOB = {0: "MIN", 1: "MIN", 2: "BTN", 3: "BTN"}
+
+
+@dataclass
 class GarlandItem:
     item_id: int
     name: str
@@ -42,6 +56,8 @@ class GarlandItem:
     craft_job: int
     ingredients: list[Ingredient] = field(default_factory=list)
     ingredient_items: dict[int, dict] = field(default_factory=dict)
+    gathering_nodes: list[GatheringNode] = field(default_factory=list)
+    is_gathered: bool = False
 
 
 def _parse_item(data: dict, no_cache: bool = False) -> GarlandItem:
@@ -92,6 +108,45 @@ def _parse_item(data: dict, no_cache: bool = False) -> GarlandItem:
         ing.category = ing_data.get("category", 0)
         ing.has_recipe = len(ing_data.get("craft", [])) > 0
 
+    # Parse gathering nodes
+    gathering_nodes = []
+    node_ids = set(item.get("nodes", []))
+    fishing_spot_ids = set(item.get("fishingSpots", []))
+
+    for partial in data.get("partials", []):
+        obj = partial.get("obj", {})
+        p_type = partial.get("type")
+        # Partial IDs can be strings or ints — normalize to int
+        raw_id = partial.get("id", obj.get("i"))
+        try:
+            p_id = int(raw_id) if raw_id is not None else None
+        except (ValueError, TypeError):
+            p_id = None
+
+        if p_type == "node" and p_id in node_ids:
+            node_type = obj.get("t", -1)
+            job = _NODE_TYPE_JOB.get(node_type, "MIN")
+            lt = obj.get("lt", "")
+            gathering_nodes.append(GatheringNode(
+                node_id=p_id,
+                name=obj.get("n", ""),
+                level=obj.get("l", 0),
+                job=job,
+                is_timed=lt in ("Unspoiled", "Ephemeral"),
+                zone_id=obj.get("z", 0),
+            ))
+        elif p_type == "fishing" and p_id in fishing_spot_ids:
+            gathering_nodes.append(GatheringNode(
+                node_id=p_id,
+                name=obj.get("n", ""),
+                level=obj.get("l", 0),
+                job="FSH",
+                is_timed=False,
+                zone_id=obj.get("z", 0),
+            ))
+
+    is_gathered = len(gathering_nodes) > 0
+
     return GarlandItem(
         item_id=item["id"],
         name=item.get("name", ""),
@@ -102,6 +157,8 @@ def _parse_item(data: dict, no_cache: bool = False) -> GarlandItem:
         craft_job=craft_job,
         ingredients=ingredients,
         ingredient_items=ingredient_items,
+        gathering_nodes=gathering_nodes,
+        is_gathered=is_gathered,
     )
 
 

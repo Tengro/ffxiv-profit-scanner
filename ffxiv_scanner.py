@@ -14,7 +14,7 @@ def main():
                         help="Home world for selling prices (default: Louisoix)")
     parser.add_argument(
         "--mode", default="craft",
-        choices=["craft", "vendor-arbitrage", "cross-world", "discover", "scrape-seeds"],
+        choices=["craft", "vendor-arbitrage", "cross-world", "discover", "gather", "scrape-seeds"],
         help="Scan mode (default: craft)",
     )
     parser.add_argument("--category", help="Item category to scan (e.g., 'workshop')")
@@ -31,6 +31,9 @@ def main():
     parser.add_argument("--show-worlds", action="store_true", help="Show per-world prices")
     parser.add_argument("--sort-by", default="profit_per_day", choices=["profit_per_day", "margin_pct"],
                         help="Sort order (default: profit_per_day)")
+    parser.add_argument("--min-level", type=int, default=0, help="Miner level (gather mode)")
+    parser.add_argument("--btn-level", type=int, default=0, help="Botanist level (gather mode)")
+    parser.add_argument("--fsh-level", type=int, default=0, help="Fisher level (gather mode)")
 
     args = parser.parse_args()
 
@@ -99,6 +102,18 @@ def main():
             min_margin=args.min_margin,
             sort_by=args.sort_by,
             show_worlds=args.show_worlds,
+        )
+    elif args.mode == "gather":
+        from scanner.modes.gather_scan import run
+        run(
+            dc=args.dc,
+            world=args.world,
+            no_cache=args.no_cache,
+            min_price=args.min_price,
+            min_velocity=args.min_velocity,
+            min_level=args.min_level,
+            btn_level=args.btn_level,
+            fsh_level=args.fsh_level,
         )
     elif args.mode == "scrape-seeds":
         from scanner.modes.scrape_seeds import run

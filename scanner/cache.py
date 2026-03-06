@@ -9,7 +9,7 @@ CACHE_DIR = Path.home() / ".ffxiv-scanner"
 # TTL in seconds; None = infinite
 NAMESPACE_TTL = {
     "garland": None,
-    "universalis": 3600,  # 1 hour
+    "universalis": 10800,  # 3 hours
 }
 
 

@@ -3,7 +3,7 @@
 
 from nicegui import ui, run
 
-from scanner.modes import craft_scan, vendor_arbitrage, cross_world, discover, scrape_seeds
+from scanner.modes import craft_scan, vendor_arbitrage, cross_world, discover, gather_scan, scrape_seeds
 from scanner.data.seeds import _load_seeds, SEEDS_PATH
 
 # Known FFXIV data centers
@@ -55,6 +55,7 @@ def create_app():
         craft_tab = ui.tab("Craft", icon="build")
         vendor_tab = ui.tab("Vendor", icon="store")
         xworld_tab = ui.tab("Cross-World", icon="swap_horiz")
+        gather_tab = ui.tab("Gather", icon="park")
         discover_tab = ui.tab("Discovery", icon="explore")
         seeds_tab = ui.tab("Seeds", icon="storage")
 
@@ -71,6 +72,10 @@ def create_app():
         # ===================== CROSS-WORLD =====================
         with ui.tab_panel(xworld_tab):
             _build_cross_world_panel(state)
+
+        # ===================== GATHER =====================
+        with ui.tab_panel(gather_tab):
+            _build_gather_panel(state)
 
         # ===================== DISCOVERY =====================
         with ui.tab_panel(discover_tab):
@@ -306,6 +311,100 @@ def _build_cross_world_panel(state: dict):
             ui.notify(f"Scan failed: {e}", type="negative")
         finally:
             spinner.visible = False
+            scan_btn.enable()
+
+    scan_btn.on_click(_run_scan)
+
+
+def _build_gather_panel(state: dict):
+    min_level = {"value": 0}
+    btn_level = {"value": 0}
+    fsh_level = {"value": 0}
+    min_price = {"value": 100.0}
+    min_velocity = {"value": 1.0}
+
+    ui.label(
+        "Set your gathering job levels (0 = skip that job). "
+        "Runs faster after Discovery mode has cached price data."
+    ).classes("text-info p-2 bg-blue-1 rounded w-full")
+
+    with ui.row().classes("items-center gap-4 p-2"):
+        ui.number("MIN Level", value=0, min=0, max=100, format="%.0f",
+                  on_change=lambda e: min_level.update(value=int(e.value or 0))).classes("w-28")
+        ui.number("BTN Level", value=0, min=0, max=100, format="%.0f",
+                  on_change=lambda e: btn_level.update(value=int(e.value or 0))).classes("w-28")
+        ui.number("FSH Level", value=0, min=0, max=100, format="%.0f",
+                  on_change=lambda e: fsh_level.update(value=int(e.value or 0))).classes("w-28")
+    with ui.row().classes("items-center gap-4 p-2"):
+        ui.number("Min Price", value=100, min=0, format="%.0f",
+                  on_change=lambda e: min_price.update(value=e.value or 0)).classes("w-32")
+        ui.number("Min Velocity", value=1.0, min=0, step=0.1, format="%.1f",
+                  on_change=lambda e: min_velocity.update(value=e.value or 0)).classes("w-32")
+        scan_btn = ui.button("Scan", icon="play_arrow")
+        spinner = ui.spinner(size="lg")
+        spinner.visible = False
+
+    progress_label = ui.label("").classes("p-2")
+    progress_bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
+    progress_bar.visible = False
+
+    columns = [
+        {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
+        {"name": "job", "label": "Job", "field": "job", "sortable": True},
+        {"name": "level", "label": "Level", "field": "level", "sortable": True},
+        {"name": "location", "label": "Location", "field": "location", "sortable": True, "align": "left"},
+        {"name": "timed", "label": "Timed", "field": "timed", "sortable": True},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True},
+        {"name": "gil_per_day", "label": "Gil/day", "field": "gil_per_day", "sortable": True},
+    ]
+    table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
+
+    async def _run_scan():
+        scan_btn.disable()
+        spinner.visible = True
+        progress_bar.visible = True
+        progress_bar.value = 0
+        progress_label.text = "Starting gather scan..."
+
+        def _on_progress(phase, total, msg):
+            progress_bar.value = phase / total
+            progress_label.text = f"Phase {phase}/{total}: {msg}"
+
+        try:
+            results = await run.io_bound(
+                gather_scan.scan,
+                dc=state["dc"], world=state["world"],
+                no_cache=state["no_cache"],
+                min_price=min_price["value"],
+                min_velocity=min_velocity["value"],
+                min_level=min_level["value"],
+                btn_level=btn_level["value"],
+                fsh_level=fsh_level["value"],
+                on_progress=_on_progress,
+            )
+            table.rows = [
+                {
+                    "item_id": r["item_id"],
+                    "name": r["name"],
+                    "job": r["job"],
+                    "level": r["level"],
+                    "location": r["location"],
+                    "timed": "Yes" if r["is_timed"] else "",
+                    "mb_price": gil(r["mb_price"]),
+                    "velocity": f"{r['velocity']:.1f}",
+                    "gil_per_day": gil(r["gil_per_day"]),
+                }
+                for r in results
+            ]
+            table.update()
+            progress_label.text = f"Done — {len(results)} gathering opportunities found"
+        except Exception as e:
+            progress_label.text = f"Error: {e}"
+            ui.notify(f"Gather scan failed: {e}", type="negative")
+        finally:
+            spinner.visible = False
+            progress_bar.visible = False
             scan_btn.enable()
 
     scan_btn.on_click(_run_scan)

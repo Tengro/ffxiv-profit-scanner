@@ -103,3 +103,23 @@ def print_cross_world_result(
     print(f"    Sell: {expensive_world} @ {gil(expensive_price)}")
     print(f"    Spread: {spread_pct:.0f}%  |  Net profit/unit: {gil(net_profit_per_unit)} gil (after 5% tax)")
     print()
+
+
+def print_gather_result(
+    name: str,
+    item_id: int,
+    job: str,
+    level: int,
+    location: str,
+    is_timed: bool,
+    mb_price: float,
+    velocity: float,
+    gil_per_day: float,
+    is_stale: bool,
+):
+    stale = " [STALE]" if is_stale else ""
+    timed = " [T]" if is_timed else ""
+    print(f"  {name:<30} {job} Lv.{level:<3}{timed}{stale}")
+    print(f"    Location: {location}")
+    print(f"    MB Price: {gil(mb_price):>10}  |  Sales/day: {velocity:.1f}  |  Gil/day: {gil(gil_per_day)}")
+    print()
