@@ -180,14 +180,17 @@ def _build_craft_panel(state: dict):
         spinner.visible = False
         status = ui.label("")
 
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
+    _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
-        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True},
-        {"name": "craft_cost", "label": "Craft Cost", "field": "craft_cost", "sortable": True},
-        {"name": "margin", "label": "Margin", "field": "margin", "sortable": True},
-        {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True},
-        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True},
-        {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "craft_cost", "label": "Craft Cost", "field": "craft_cost", "sortable": True, ":format": _fmt_gil},
+        {"name": "margin", "label": "Margin", "field": "margin", "sortable": True, ":format": _fmt_gil},
+        {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True, ":format": _fmt_pct},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
+        {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True, ":format": _fmt_gil},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
     detail_container = ui.column().classes("w-full")
@@ -239,12 +242,12 @@ def _build_craft_panel(state: dict):
                 {
                     "item_id": r.item_id,
                     "name": r.name,
-                    "mb_price": gil(r.mb_price),
-                    "craft_cost": gil(r.craft_cost),
-                    "margin": gil(r.margin),
-                    "margin_pct": f"{r.margin_pct:.0f}%",
-                    "velocity": f"{r.sale_velocity:.1f}",
-                    "profit_per_day": gil(r.profit_per_day),
+                    "mb_price": r.mb_price,
+                    "craft_cost": r.craft_cost,
+                    "margin": r.margin,
+                    "margin_pct": r.margin_pct,
+                    "velocity": r.sale_velocity,
+                    "profit_per_day": r.profit_per_day,
                 }
                 for r in results
             ]
@@ -274,13 +277,16 @@ def _build_vendor_panel(state: dict):
         spinner.visible = False
         status = ui.label("")
 
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
+    _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
-        {"name": "npc_price", "label": "NPC Price", "field": "npc_price", "sortable": True},
-        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True},
-        {"name": "markup_pct", "label": "Markup %", "field": "markup_pct", "sortable": True},
-        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True},
-        {"name": "daily_profit", "label": "Profit/day", "field": "daily_profit", "sortable": True},
+        {"name": "npc_price", "label": "NPC Price", "field": "npc_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "markup_pct", "label": "Markup %", "field": "markup_pct", "sortable": True, ":format": _fmt_pct},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
+        {"name": "daily_profit", "label": "Profit/day", "field": "daily_profit", "sortable": True, ":format": _fmt_gil},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -301,11 +307,11 @@ def _build_vendor_panel(state: dict):
                 {
                     "item_id": r["item_id"],
                     "name": r["name"],
-                    "npc_price": gil(r["npc_price"]),
-                    "mb_price": gil(r["mb_price"]),
-                    "markup_pct": f"{r['markup_pct']:.0f}%",
-                    "velocity": f"{r['velocity']:.1f}",
-                    "daily_profit": gil(r["daily_profit"]),
+                    "npc_price": r["npc_price"],
+                    "mb_price": r["mb_price"],
+                    "markup_pct": r["markup_pct"],
+                    "velocity": r["velocity"],
+                    "daily_profit": r["daily_profit"],
                 }
                 for r in results
             ]
@@ -335,15 +341,17 @@ def _build_cross_world_panel(state: dict):
         spinner.visible = False
         status = ui.label("")
 
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "cheap_world", "label": "Buy World", "field": "cheap_world", "sortable": True},
-        {"name": "cheap_price", "label": "Buy Price", "field": "cheap_price", "sortable": True},
+        {"name": "cheap_price", "label": "Buy Price", "field": "cheap_price", "sortable": True, ":format": _fmt_gil},
         {"name": "cheap_qty", "label": "Qty", "field": "cheap_qty", "sortable": True},
         {"name": "expensive_world", "label": "Sell World", "field": "expensive_world", "sortable": True},
-        {"name": "expensive_price", "label": "Sell Price", "field": "expensive_price", "sortable": True},
-        {"name": "spread_pct", "label": "Spread %", "field": "spread_pct", "sortable": True},
-        {"name": "net_profit", "label": "Net Profit", "field": "net_profit", "sortable": True},
+        {"name": "expensive_price", "label": "Sell Price", "field": "expensive_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "spread_pct", "label": "Spread %", "field": "spread_pct", "sortable": True, ":format": _fmt_pct},
+        {"name": "net_profit", "label": "Net Profit", "field": "net_profit", "sortable": True, ":format": _fmt_gil},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -365,12 +373,12 @@ def _build_cross_world_panel(state: dict):
                     "item_id": r["item_id"],
                     "name": r["name"],
                     "cheap_world": r["cheap_world"],
-                    "cheap_price": gil(r["cheap_price"]),
+                    "cheap_price": r["cheap_price"],
                     "cheap_qty": r["cheap_qty"],
                     "expensive_world": r["expensive_world"],
-                    "expensive_price": gil(r["expensive_price"]),
-                    "spread_pct": f"{r['spread_pct']:.0f}%",
-                    "net_profit": gil(r["net_profit"]),
+                    "expensive_price": r["expensive_price"],
+                    "spread_pct": r["spread_pct"],
+                    "net_profit": r["net_profit"],
                 }
                 for r in results
             ]
@@ -508,14 +516,17 @@ def _build_discover_panel(state: dict):
     progress_bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
     progress_bar.visible = False
 
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
+    _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
-        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True},
-        {"name": "craft_cost", "label": "Craft Cost", "field": "craft_cost", "sortable": True},
-        {"name": "margin", "label": "Margin", "field": "margin", "sortable": True},
-        {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True},
-        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True},
-        {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "craft_cost", "label": "Craft Cost", "field": "craft_cost", "sortable": True, ":format": _fmt_gil},
+        {"name": "margin", "label": "Margin", "field": "margin", "sortable": True, ":format": _fmt_gil},
+        {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True, ":format": _fmt_pct},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
+        {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True, ":format": _fmt_gil},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -546,12 +557,12 @@ def _build_discover_panel(state: dict):
                 {
                     "item_id": r.item_id,
                     "name": r.name,
-                    "mb_price": gil(r.mb_price),
-                    "craft_cost": gil(r.craft_cost),
-                    "margin": gil(r.margin),
-                    "margin_pct": f"{r.margin_pct:.0f}%",
-                    "velocity": f"{r.sale_velocity:.1f}",
-                    "profit_per_day": gil(r.profit_per_day),
+                    "mb_price": r.mb_price,
+                    "craft_cost": r.craft_cost,
+                    "margin": r.margin,
+                    "margin_pct": r.margin_pct,
+                    "velocity": r.sale_velocity,
+                    "profit_per_day": r.profit_per_day,
                 }
                 for r in results
             ]
