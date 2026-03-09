@@ -349,10 +349,11 @@ def _fetch_node_items(node_id: int, source_type: str, no_cache: bool) -> list[di
 def is_hunting_material(item_id: int, no_cache: bool = False) -> bool:
     """Check if an item is a hunting material (mob drop, tradeable).
 
-    Uses 'drops' field as the signal — items that drop from mobs in the overworld.
-    Filters out seal-only/venture-only items that lack actual mob drops.
+    Hybrid heuristic: ventures + !nodes + !craft + tradeable + no GC seal shop.
+    The 'drops' field only covers through Stormblood (patch 4.x), so we use
+    'ventures' as the primary signal and exclude seal-only items via tradeShops.
     """
-    cache_key = f"huntdrop_{item_id}"
+    cache_key = f"huntv2_{item_id}"
     if not no_cache:
         cached = cache.get("garland", cache_key)
         if cached is not None:
@@ -370,9 +371,12 @@ def is_hunting_material(item_id: int, no_cache: bool = False) -> bool:
         return False
 
     item = data.get("item", {})
-    has_drops = "drops" in item
+    has_ventures = "ventures" in item
+    has_nodes = "nodes" in item or "fishingSpots" in item
+    has_craft = len(item.get("craft", [])) > 0
     tradeable = item.get("tradeable", 0) == 1
-    result = has_drops and tradeable
+    gc_seal_cost = _extract_gc_seal_cost(item)
+    result = has_ventures and not has_nodes and not has_craft and tradeable and gc_seal_cost == 0
 
     if not no_cache:
         cache.put("garland", cache_key, result)
@@ -498,11 +502,11 @@ def check_hunting_items(
     no_cache: bool = False,
     on_progress: callable = None,
 ) -> dict[int, str]:
-    """Check which items are hunting materials (have mob drops).
+    """Check which items are hunting materials (mob drops).
 
-    Uses 'drops' field as the signal — much more accurate than the old
-    'ventures + !nodes + !craft' heuristic, which let through seal-only
-    and venture-only items (e.g. Petrified Log, Domakin).
+    Hybrid heuristic: ventures + !nodes + !craft + tradeable + no GC seal shop.
+    Covers all expansions (ARR through Dawntrail) while filtering out seal-only
+    items like Petrified Log.
 
     Returns {item_id: name} for matches.
     """
@@ -511,7 +515,7 @@ def check_hunting_items(
         if on_progress and (i + 1) % 50 == 0:
             on_progress(f"Checking items... {i + 1}/{len(item_ids)}")
 
-        cache_key = f"huntdrop_{item_id}"
+        cache_key = f"huntv2_{item_id}"
         if not no_cache:
             cached = cache.get("garland", cache_key)
             if cached is not None:
@@ -533,9 +537,12 @@ def check_hunting_items(
             continue
 
         item = data.get("item", {})
-        has_drops = "drops" in item
+        has_ventures = "ventures" in item
+        has_nodes = "nodes" in item or "fishingSpots" in item
+        has_craft = len(item.get("craft", [])) > 0
         tradeable = item.get("tradeable", 0) == 1
-        is_hunter = has_drops and tradeable
+        gc_seal_cost = _extract_gc_seal_cost(item)
+        is_hunter = has_ventures and not has_nodes and not has_craft and tradeable and gc_seal_cost == 0
 
         if not no_cache:
             cache.put("garland", cache_key, is_hunter)
