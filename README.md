@@ -1,105 +1,100 @@
-# FFXIV Crafting Profit Scanner
+# FFXIV Market Board Scanner v1.0
 
-CLI tool that scans the FFXIV market board to find profitable crafting opportunities, vendor arbitrage, and cross-world price spreads. Uses [Universalis](https://universalis.app/) for market data and [Garland Tools](https://garlandtools.org/) for recipe/item data.
+CLI + GUI tool that scans the FFXIV market board to find profitable activities for your character. Uses [Universalis](https://universalis.app/) for market data and [Garland Tools](https://garlandtools.org/) for recipe/item data.
+
+All modes are **world-specific** — you sell where you play.
 
 ## Setup
 
 ```bash
-pip install requests
+pip install requests nicegui
 ```
 
-First run: scrape item seeds to build the local database of scannable items.
+## Modes
+
+### Crafting (default)
+
+Find profitable items to craft based on your crafter levels. Shows MB price, velocity, and estimated gil/day.
+
+```bash
+# What can my CUL 90 and WVR 80 craft profitably?
+python3 ffxiv_scanner.py --dc Chaos --world Louisoix --cul-level 90 --wvr-level 80
+
+# Higher filters
+python3 ffxiv_scanner.py --dc Chaos --world Louisoix --cul-level 100 --min-price 500 --min-velocity 2
+```
+
+Available crafter flags: `--crp-level`, `--bsm-level`, `--arm-level`, `--gsm-level`, `--ltw-level`, `--wvr-level`, `--alc-level`, `--cul-level`
+
+### Gather
+
+Find profitable items to gather based on your gatherer levels.
+
+```bash
+python3 ffxiv_scanner.py --mode gather --dc Chaos --world Louisoix --min-level 90 --btn-level 87
+```
+
+### Hunter
+
+Find profitable mob-drop materials (hides, horns, meat, bones, etc.). Uses item-side detection — works across all expansions.
+
+```bash
+python3 ffxiv_scanner.py --mode hunter --dc Chaos --world Louisoix --min-price 200
+```
+
+### Vendor Arbitrage
+
+Find NPC-sold items being resold on the MB at significant markups. Zero crafting required.
+
+```bash
+# Default: 50%+ markup, 0.5+ sales/day
+python3 ffxiv_scanner.py --mode vendor-arbitrage --dc Chaos --world Louisoix
+
+# Stricter filters
+python3 ffxiv_scanner.py --mode vendor-arbitrage --dc Chaos --world Louisoix --min-markup 200 --min-velocity 5
+```
+
+### Workshop
+
+Full margin analysis for FC workshop items (submersibles, airships, housing walls). Includes ingredient cost breakdown.
+
+```bash
+python3 ffxiv_scanner.py --mode workshop --dc Chaos --world Louisoix
+
+# Scan a specific item
+python3 ffxiv_scanner.py --mode workshop --dc Chaos --world Louisoix --item "Whale-class Bridge"
+
+# Treat GC seal items as free
+python3 ffxiv_scanner.py --mode workshop --dc Chaos --world Louisoix --gc-seals-free
+```
+
+### Seed Scraper
+
+Discover items for workshop and vendor modes.
 
 ```bash
 python3 ffxiv_scanner.py --mode scrape-seeds --dc Chaos
 ```
 
-This discovers:
-- **Workshop items** (submersibles, airships, housing walls) via Garland Tools search
-- **NPC vendor items** (~3,600 items in the 10-5000 gil range) from [Teamcraft](https://github.com/ffxiv-teamcraft/ffxiv-teamcraft) data, filtered by MB velocity
-- **Popular crafts** with active market board sales
-
-Results are saved to `~/.ffxiv-scanner/seeds.json` and reused by all scan modes. Re-run after major patches to pick up new items.
-
-## Usage
-
-### Craft profit scan
-
-Find items where crafting is cheaper than buying on the market board. Scans workshop items by default.
+## GUI
 
 ```bash
-# Scan all workshop items (submersibles, airships, housing walls)
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix
-
-# Scan a specific item
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --item-id 22527
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --item "Whale-class Bridge"
-
-# Filter by minimum margin, sort by margin %
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --min-margin 100 --sort-by margin_pct
-
-# Treat GC seal items (Coke, etc.) as free
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --gc-seals-free
-
-# Show per-world ingredient prices
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --item-id 22527 --show-worlds
+python3 app.py
 ```
 
-### Vendor arbitrage
-
-Find NPC-sold items being resold on the MB at significant markups. Zero crafting required. Scans ~400+ vendor items discovered by the seed scraper.
-
-```bash
-# Find vendor markup opportunities (default: 50%+ markup, 0.5+ sales/day)
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --mode vendor-arbitrage
-
-# Stricter filters
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --mode vendor-arbitrage --min-markup 200 --min-velocity 5
-```
-
-### Cross-world spread
-
-Find items with large price differences between worlds within a DC.
-
-```bash
-python3 ffxiv_scanner.py --dc Chaos --mode cross-world --min-spread 50
-```
-
-### Market discovery
-
-Scan the entire marketable item list (~16,700 items) to find craftable items with high margins that aren't in the seed lists. Queries Universalis for all tradeable items, filters by price and velocity, then checks Garland for recipes and calculates margins.
-
-```bash
-# Default: items >= 50k avg sale price, >= 0.5 sales/day
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --mode discover
-
-# Lower threshold to catch mid-range items (more results, slower)
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --mode discover --min-price 10000
-
-# High-value only
-python3 ffxiv_scanner.py --dc Chaos --world Louisoix --mode discover --min-price 500000 --min-margin 50
-```
-
-Newly discovered craftable items are automatically saved to `seeds.json` for future craft scans.
+Opens a NiceGUI web interface with tabs for all scan modes.
 
 ## How pricing works
 
-### Home world vs DC-wide
-
-- **Revenue** uses your home world's (`--world`) recent sale prices and sale velocity — what you'd actually earn listing on your server
-- **Ingredient costs** use DC-wide prices, since you can world-visit to buy the cheapest materials
-
 ### Outlier-resistant pricing
 
-Sale prices are computed using a robust average instead of trusting Universalis's raw `averagePrice`, which can be skewed by RMT transactions (e.g., a single 20M gil "sale" of a 10 gil item). The algorithm:
+Sale prices use a robust average instead of Universalis's raw `averagePrice`, which can be skewed by RMT transactions. The algorithm:
 
 1. Compute the **median** of recent sales
-2. Filter out any sale more than **3x away** from the median (both high and low)
+2. Filter out any sale more than **3x away** from the median
 3. Average the remaining sales
 
-This eliminates RMT cover-up transactions and price manipulation while preserving legitimate price variation.
-
-### Ingredient cost resolution
+### Ingredient cost resolution (Workshop mode)
 
 Costs are resolved in priority order:
 
@@ -107,11 +102,9 @@ Costs are resolved in priority order:
 2. **Crystals** — always MB price
 3. **NPC vendor** — uses vendor buy price from Garland Tools
 4. **Gathered** — treated as free if no recipe, no NPC price, and MB < 500 gil
-5. **Market board** — DC-wide robust average of recent sales
+5. **Market board** — world-specific robust average of recent sales
 
-A 5% tax is applied to all revenue (sell side).
-
-For each ingredient that has its own crafting recipe, a 1-level recursive check shows whether crafting it yourself would be cheaper than buying on the MB.
+A 5% tax is applied to all revenue.
 
 ## CLI reference
 
@@ -119,19 +112,28 @@ For each ingredient that has its own crafting recipe, a 1-level recursive check 
 |------|---------|-------------|
 | `--dc` | `Chaos` | Data center name |
 | `--world` | `Louisoix` | Home world for selling prices |
-| `--mode` | `craft` | `craft`, `vendor-arbitrage`, `cross-world`, `discover`, `scrape-seeds` |
-| `--category` | — | Item category filter (e.g., `workshop`) |
+| `--mode` | `crafting` | `crafting`, `gather`, `hunter`, `vendor-arbitrage`, `workshop`, `scrape-seeds` |
 | `--item` | — | Search for item by name |
-| `--item-id` | — | Scan a specific item by Garland Tools ID |
-| `--gc-seals-free` | off | Treat GC seal items as zero cost |
-| `--no-cache` | off | Force fresh API calls (ignore cache) |
-| `--min-price` | `50000` | Minimum avg sale price (discover mode) |
-| `--min-margin` | `0` | Minimum margin % (craft/discover mode) |
+| `--item-id` | — | Scan a specific item by ID |
+| `--gc-seals-free` | off | Treat GC seal items as zero cost (workshop mode) |
+| `--no-cache` | off | Force fresh API calls |
+| `--stale-ok` | off | Use cached data even if expired |
+| `--min-price` | `100` | Minimum avg sale price |
+| `--min-margin` | `0` | Minimum margin % (workshop mode) |
 | `--min-markup` | `50` | Minimum markup % (vendor-arbitrage mode) |
-| `--min-spread` | `50` | Minimum spread % (cross-world mode) |
 | `--min-velocity` | `0.5` | Minimum sales per day |
-| `--show-worlds` | off | Show per-world prices for ingredients |
-| `--sort-by` | `profit_per_day` | `profit_per_day` or `margin_pct` |
+| `--sort-by` | `gil_per_day` | `gil_per_day`, `mb_price`, or `velocity` |
+| `--crp-level` | `0` | Carpenter level (crafting mode) |
+| `--bsm-level` | `0` | Blacksmith level (crafting mode) |
+| `--arm-level` | `0` | Armorer level (crafting mode) |
+| `--gsm-level` | `0` | Goldsmith level (crafting mode) |
+| `--ltw-level` | `0` | Leatherworker level (crafting mode) |
+| `--wvr-level` | `0` | Weaver level (crafting mode) |
+| `--alc-level` | `0` | Alchemist level (crafting mode) |
+| `--cul-level` | `0` | Culinarian level (crafting mode) |
+| `--min-level` | `0` | Miner level (gather mode) |
+| `--btn-level` | `0` | Botanist level (gather mode) |
+| `--fsh-level` | `0` | Fisher level (gather mode) |
 
 ## Caching
 
@@ -152,19 +154,21 @@ Use `--no-cache` to force fresh data.
 
 ```
 ffxiv_scanner.py              # CLI entry point
+app.py                        # NiceGUI web interface
 scanner/
   cache.py                    # JSON file cache with TTL
   pricing.py                  # Price resolution + margin calculation
   output.py                   # Terminal formatting
   data/
-    seeds.py                  # Seed data loader (from ~/.ffxiv-scanner/seeds.json)
+    seeds.py                  # Seed data loader
   api/
     garland.py                # Garland Tools API client
     universalis.py            # Universalis API client (with outlier-resistant pricing)
   modes/
-    craft_scan.py             # Crafting profit scan
+    craft_scan.py             # Workshop profit scan (full margin analysis)
+    crafting_scan.py          # Crafting scan (by class + level, price/velocity)
+    hunter_scan.py            # Mob-drop material scan
+    gather_scan.py            # Gathering scan (by class + level)
     vendor_arbitrage.py       # NPC vendor markup scan
-    cross_world.py            # Cross-world price spread scan
-    discover.py               # Full market discovery scan
     scrape_seeds.py           # Item discovery + seed generation
 ```

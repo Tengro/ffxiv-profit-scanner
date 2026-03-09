@@ -346,6 +346,188 @@ def _fetch_node_items(node_id: int, source_type: str, no_cache: bool) -> list[di
     return result
 
 
+def is_hunting_material(item_id: int, no_cache: bool = False) -> bool:
+    """Check if an item is a hunting material (mob drop / retainer venture, not gathered/crafted)."""
+    cache_key = f"hunter_{item_id}"
+    if not no_cache:
+        cached = cache.get("garland", cache_key)
+        if cached is not None:
+            return cached
+
+    _rate_limit()
+    url = ITEM_URL.format(item_id=item_id)
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        if not no_cache:
+            cache.put("garland", cache_key, False)
+        return False
+
+    item = data.get("item", {})
+    has_ventures = "ventures" in item
+    has_nodes = "nodes" in item or "fishingSpots" in item
+    has_craft = bool(item.get("craft"))
+    tradeable = item.get("tradeable", 0) == 1
+    result = has_ventures and not has_nodes and not has_craft and tradeable
+
+    if not no_cache:
+        cache.put("garland", cache_key, result)
+    return result
+
+
+def fetch_item_name(item_id: int, no_cache: bool = False) -> str:
+    """Get an item's name from Garland. Uses cache when available."""
+    # Check if we already have full item data cached
+    if not no_cache:
+        cached = cache.get("garland", f"full_{item_id}")
+        if cached:
+            return cached.get("item", {}).get("name", "")
+
+    _rate_limit()
+    url = ITEM_URL.format(item_id=item_id)
+    try:
+        resp = requests.get(url, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return ""
+
+    if not no_cache:
+        cache.put("garland", f"full_{item_id}", data)
+
+    return data.get("item", {}).get("name", "")
+
+
+# FFXIV craft job ID -> abbreviation
+CRAFT_JOB_MAP = {
+    8: "CRP", 9: "BSM", 10: "ARM", 11: "GSM",
+    12: "LTW", 13: "WVR", 14: "ALC", 15: "CUL",
+}
+
+
+def check_craftable_items(
+    item_ids: list[int],
+    job_levels: dict[str, int],
+    no_cache: bool = False,
+    on_progress: callable = None,
+) -> dict[int, dict]:
+    """Check which items are craftable within given job levels.
+
+    job_levels: e.g. {"CUL": 90, "WVR": 80}
+    Returns {item_id: {name, job, level}} for matches.
+    """
+    results = {}
+    for i, item_id in enumerate(item_ids):
+        if on_progress and (i + 1) % 50 == 0:
+            on_progress(f"Checking recipes... {i + 1}/{len(item_ids)}")
+
+        cache_key = f"craft_{item_id}"
+        if not no_cache:
+            cached = cache.get("garland", cache_key)
+            if cached is not None:
+                # cached is either False or {job, level, name}
+                if cached and isinstance(cached, dict):
+                    job_abbr = cached["job"]
+                    recipe_lvl = cached["level"]
+                    if job_abbr in job_levels and recipe_lvl <= job_levels[job_abbr]:
+                        results[item_id] = cached
+                continue
+
+        _rate_limit()
+        url = ITEM_URL.format(item_id=item_id)
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
+            continue
+
+        item = data.get("item", {})
+        craft_list = item.get("craft", [])
+        if not craft_list:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
+            continue
+
+        craft = craft_list[0]
+        job_id = craft.get("job", 0)
+        recipe_lvl = craft.get("lvl", 0)
+        job_abbr = CRAFT_JOB_MAP.get(job_id)
+
+        if not job_abbr:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
+            continue
+
+        craft_info = {
+            "name": item.get("name", ""),
+            "job": job_abbr,
+            "level": recipe_lvl,
+        }
+        if not no_cache:
+            cache.put("garland", cache_key, craft_info)
+
+        if job_abbr in job_levels and recipe_lvl <= job_levels[job_abbr]:
+            results[item_id] = craft_info
+
+    return results
+
+
+def check_hunting_items(
+    item_ids: list[int],
+    no_cache: bool = False,
+    on_progress: callable = None,
+) -> dict[int, str]:
+    """Check which items are hunting materials. Returns {item_id: name} for matches."""
+    results = {}
+    for i, item_id in enumerate(item_ids):
+        if on_progress and (i + 1) % 50 == 0:
+            on_progress(f"Checking items... {i + 1}/{len(item_ids)}")
+
+        cache_key = f"hunter_{item_id}"
+        if not no_cache:
+            cached = cache.get("garland", cache_key)
+            if cached is not None:
+                if cached:
+                    name = fetch_item_name(item_id, no_cache=no_cache)
+                    if name:
+                        results[item_id] = name
+                continue
+
+        _rate_limit()
+        url = ITEM_URL.format(item_id=item_id)
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
+            continue
+
+        item = data.get("item", {})
+        has_ventures = "ventures" in item
+        has_nodes = "nodes" in item or "fishingSpots" in item
+        has_craft = bool(item.get("craft"))
+        tradeable = item.get("tradeable", 0) == 1
+        is_hunter = has_ventures and not has_nodes and not has_craft and tradeable
+
+        if not no_cache:
+            cache.put("garland", cache_key, is_hunter)
+            cache.put("garland", f"full_{item_id}", data)
+
+        if is_hunter:
+            name = item.get("name", "")
+            if name:
+                results[item_id] = name
+
+    return results
+
+
 def search_items(query: str) -> list[dict]:
     _rate_limit()
     resp = requests.get(

@@ -82,16 +82,18 @@ def scan(
 
     _progress(1, f"Found {len(gather_items)} gatherable items, fetching prices...")
 
-    # Phase 2: Fetch prices with full outlier-resistant processing
+    # Phase 2: Fetch prices — world-level when available (lighter, faster),
+    # DC-level only as fallback. Gather mode is single-world, no cross-world needed.
     item_ids = [g["item_id"] for g in gather_items]
-    _progress(2, f"Fetching prices for {len(item_ids)} items...")
+    price_target = world or dc
+    _progress(2, f"Fetching {price_target} prices for {len(item_ids)} items...")
 
     price_data = universalis.fetch_prices(
-        item_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
+        item_ids, price_target, no_cache=no_cache, allow_stale=allow_stale,
         listings=5, entries=20,
     )
 
-    # Build results using robust averages from PriceData
+    # Build results and filter
     results = []
     for g in gather_items:
         item_id = g["item_id"]
@@ -122,25 +124,7 @@ def scan(
             "bargain": bargain,
         })
 
-    _progress(3, f"Found {len(results)} gathering opportunities")
-
-    # Phase 3: Optionally refine prices with world-specific data
-    if world and results:
-        _progress(3, f"Fetching {world} prices...")
-        result_ids = [r["item_id"] for r in results]
-        world_prices = universalis.fetch_prices(
-            result_ids, world, no_cache=no_cache, allow_stale=allow_stale,
-            listings=5, entries=20,
-        )
-        for r in results:
-            wp = world_prices.get(r["item_id"])
-            if wp and wp.avg_sale_price > 0:
-                r["mb_price"] = wp.avg_sale_price
-                r["velocity"] = wp.nq_sale_velocity
-                r["gil_per_day"] = wp.avg_sale_price * 0.95 * wp.nq_sale_velocity
-                r["is_stale"] = wp.is_stale
-                r["last_updated"] = wp.last_upload_time
-                r["bargain"] = _detect_bargain(wp, wp.avg_sale_price)
+    _progress(2, f"Found {len(results)} gathering opportunities after filtering")
 
     if sort_by == "mb_price":
         results.sort(key=lambda r: r["mb_price"], reverse=True)

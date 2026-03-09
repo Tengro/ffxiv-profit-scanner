@@ -105,6 +105,42 @@ def print_cross_world_result(
     print()
 
 
+def print_crafting_result(
+    name: str,
+    item_id: int,
+    job: str,
+    level: int,
+    mb_price: float,
+    velocity: float,
+    gil_per_day: float,
+    is_stale: bool,
+    bargain: dict | None = None,
+):
+    stale = " [STALE]" if is_stale else ""
+    print(f"  {name:<30} {job} Lv.{level:<3}{stale}")
+    print(f"    MB Price: {gil(mb_price):>10}  |  Sales/day: {velocity:.1f}  |  Gil/day: {gil(gil_per_day)}")
+    if bargain:
+        print(f"    [BARGAIN] {bargain['world']}: {gil(bargain['price'])} x{bargain['qty']} ({bargain['discount_pct']}% below avg)")
+    print()
+
+
+def print_hunter_result(
+    name: str,
+    item_id: int,
+    mb_price: float,
+    velocity: float,
+    gil_per_day: float,
+    is_stale: bool,
+    bargain: dict | None = None,
+):
+    stale = " [STALE]" if is_stale else ""
+    print(f"  {name:<30} (ID: {item_id}){stale}")
+    print(f"    MB Price: {gil(mb_price):>10}  |  Sales/day: {velocity:.1f}  |  Gil/day: {gil(gil_per_day)}")
+    if bargain:
+        print(f"    [BARGAIN] {bargain['world']}: {gil(bargain['price'])} x{bargain['qty']} ({bargain['discount_pct']}% below avg)")
+    print()
+
+
 def print_gather_result(
     name: str,
     item_id: int,
