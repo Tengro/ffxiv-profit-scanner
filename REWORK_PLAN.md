@@ -128,7 +128,7 @@ After old scanner changes are tested, mirror to TCS:
 3. ~~**Old scanner: New Crafting mode** — the big one, follows hunter scan pattern~~ ✅ DONE (simplified: price/velocity only, no margin calc)
 4. ~~**Old scanner: Vendor world-specific cleanup** — minor~~ ✅ DONE (already world-specific)
 5. ~~**Test all modes end-to-end** on old scanner~~ ✅ DONE (all modes tested live)
-6. **TCS: Mirror changes** — backend modes, frontend pages, API models — PENDING
+6. ~~**TCS: Mirror changes** — backend modes, frontend pages, API models~~ ✅ DONE
 
 ## Files to Modify (Old Scanner)
 
