@@ -1,8 +1,35 @@
 import sys
 
 from scanner.api import garland, universalis
-from scanner.api.universalis import fetch_prices_lightweight
 from scanner.output import print_header, print_gather_result
+
+
+def _detect_bargain(price_data, robust_avg: float) -> dict | None:
+    """Check if any current listing is significantly below the robust average.
+
+    Returns info about the cheapest bargain listing, or None.
+    A "bargain" is a listing priced below median/3 — i.e. someone dumping stock
+    well below market rate. Upper outliers (RMT spikes) are just ignored.
+    """
+    if not price_data or not price_data.listings or robust_avg <= 0:
+        return None
+
+    threshold = robust_avg / 3  # same as OUTLIER_FACTOR lower bound
+    bargains = [
+        l for l in price_data.listings
+        if l.price_per_unit > 0 and l.price_per_unit < threshold
+    ]
+    if not bargains:
+        return None
+
+    cheapest = min(bargains, key=lambda l: l.price_per_unit)
+    total_qty = sum(l.quantity for l in bargains)
+    return {
+        "price": cheapest.price_per_unit,
+        "qty": total_qty,
+        "world": cheapest.world_name,
+        "discount_pct": round((1 - cheapest.price_per_unit / robust_avg) * 100),
+    }
 
 
 def scan(
@@ -21,7 +48,7 @@ def scan(
     """Find profitable gathering opportunities.
 
     Uses Garland node browse to find gatherable items first (fast),
-    then fetches prices only for those items from Universalis.
+    then fetches prices with outlier-resistant averaging from Universalis.
 
     Level params: 0 = skip that job, >0 = show items up to that level.
     """
@@ -55,29 +82,30 @@ def scan(
 
     _progress(1, f"Found {len(gather_items)} gatherable items, fetching prices...")
 
-    # Phase 2: Fetch prices from Universalis (only for gatherable items)
+    # Phase 2: Fetch prices with full outlier-resistant processing
     item_ids = [g["item_id"] for g in gather_items]
     _progress(2, f"Fetching prices for {len(item_ids)} items...")
 
-    price_data = fetch_prices_lightweight(
+    price_data = universalis.fetch_prices(
         item_ids, dc, no_cache=no_cache, allow_stale=allow_stale,
-        on_batch=lambda done, total: _progress(2, f"Fetching prices ({done}/{total} batches)..."),
+        listings=5, entries=20,
     )
 
-    # Build results
+    # Build results using robust averages from PriceData
     results = []
     for g in gather_items:
         item_id = g["item_id"]
-        mdata = price_data.get(item_id)
-        if not mdata:
+        pd = price_data.get(item_id)
+        if not pd:
             continue
 
-        avg_price = mdata.get("averagePrice", 0)
-        velocity = mdata.get("regularSaleVelocity", 0)
+        avg_price = pd.avg_sale_price  # outlier-resistant average
+        velocity = pd.nq_sale_velocity
         if avg_price < min_price or velocity < min_velocity:
             continue
 
         gil_per_day = avg_price * 0.95 * velocity
+        bargain = _detect_bargain(pd, avg_price)
 
         results.append({
             "item_id": item_id,
@@ -89,7 +117,9 @@ def scan(
             "mb_price": avg_price,
             "velocity": velocity,
             "gil_per_day": gil_per_day,
-            "is_stale": False,
+            "is_stale": pd.is_stale,
+            "last_updated": pd.last_upload_time,
+            "bargain": bargain,
         })
 
     _progress(3, f"Found {len(results)} gathering opportunities")
@@ -109,6 +139,8 @@ def scan(
                 r["velocity"] = wp.nq_sale_velocity
                 r["gil_per_day"] = wp.avg_sale_price * 0.95 * wp.nq_sale_velocity
                 r["is_stale"] = wp.is_stale
+                r["last_updated"] = wp.last_upload_time
+                r["bargain"] = _detect_bargain(wp, wp.avg_sale_price)
 
     if sort_by == "mb_price":
         results.sort(key=lambda r: r["mb_price"], reverse=True)
@@ -175,4 +207,5 @@ def run(
             velocity=r["velocity"],
             gil_per_day=r["gil_per_day"],
             is_stale=r["is_stale"],
+            bargain=r.get("bargain"),
         )

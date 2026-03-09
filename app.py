@@ -183,6 +183,7 @@ def _build_craft_panel(state: dict):
     _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
     _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
     _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
@@ -191,6 +192,7 @@ def _build_craft_panel(state: dict):
         {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True, ":format": _fmt_pct},
         {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
         {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True, ":format": _fmt_gil},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
     detail_container = ui.column().classes("w-full")
@@ -248,6 +250,7 @@ def _build_craft_panel(state: dict):
                     "margin_pct": r.margin_pct,
                     "velocity": r.sale_velocity,
                     "profit_per_day": r.profit_per_day,
+                    "last_updated": r.last_upload_time,
                 }
                 for r in results
             ]
@@ -280,6 +283,7 @@ def _build_vendor_panel(state: dict):
     _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
     _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
     _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "npc_price", "label": "NPC Price", "field": "npc_price", "sortable": True, ":format": _fmt_gil},
@@ -287,6 +291,7 @@ def _build_vendor_panel(state: dict):
         {"name": "markup_pct", "label": "Markup %", "field": "markup_pct", "sortable": True, ":format": _fmt_pct},
         {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
         {"name": "daily_profit", "label": "Profit/day", "field": "daily_profit", "sortable": True, ":format": _fmt_gil},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -312,6 +317,7 @@ def _build_vendor_panel(state: dict):
                     "markup_pct": r["markup_pct"],
                     "velocity": r["velocity"],
                     "daily_profit": r["daily_profit"],
+                    "last_updated": r.get("last_updated", 0),
                 }
                 for r in results
             ]
@@ -343,6 +349,7 @@ def _build_cross_world_panel(state: dict):
 
     _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
     _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "cheap_world", "label": "Buy World", "field": "cheap_world", "sortable": True},
@@ -352,6 +359,7 @@ def _build_cross_world_panel(state: dict):
         {"name": "expensive_price", "label": "Sell Price", "field": "expensive_price", "sortable": True, ":format": _fmt_gil},
         {"name": "spread_pct", "label": "Spread %", "field": "spread_pct", "sortable": True, ":format": _fmt_pct},
         {"name": "net_profit", "label": "Net Profit", "field": "net_profit", "sortable": True, ":format": _fmt_gil},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -379,6 +387,7 @@ def _build_cross_world_panel(state: dict):
                     "expensive_price": r["expensive_price"],
                     "spread_pct": r["spread_pct"],
                     "net_profit": r["net_profit"],
+                    "last_updated": r.get("last_updated", 0),
                 }
                 for r in results
             ]
@@ -426,18 +435,20 @@ def _build_gather_panel(state: dict):
     progress_bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
     progress_bar.visible = False
 
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "job", "label": "Job", "field": "job", "sortable": True},
         {"name": "level", "label": "Level", "field": "level", "sortable": True},
         {"name": "location", "label": "Location", "field": "location", "sortable": True, "align": "left"},
         {"name": "timed", "label": "Timed", "field": "timed", "sortable": True},
-        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True,
-         ":format": "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"},
-        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True,
-         ":format": "val => val != null ? val.toFixed(1) : ''"},
-        {"name": "gil_per_day", "label": "Gil/day", "field": "gil_per_day", "sortable": True,
-         ":format": "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
+        {"name": "gil_per_day", "label": "Gil/day", "field": "gil_per_day", "sortable": True, ":format": _fmt_gil},
+        {"name": "bargain", "label": "Bargain", "field": "bargain", "sortable": True, "align": "left"},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -476,6 +487,11 @@ def _build_gather_panel(state: dict):
                     "mb_price": r["mb_price"],
                     "velocity": r["velocity"],
                     "gil_per_day": r["gil_per_day"],
+                    "bargain": (
+                        f"{r['bargain']['world']}: {r['bargain']['price']:,} x{r['bargain']['qty']} (-{r['bargain']['discount_pct']}%)"
+                        if r.get("bargain") else ""
+                    ),
+                    "last_updated": r.get("last_updated", 0),
                 }
                 for r in results
             ]
@@ -519,6 +535,7 @@ def _build_discover_panel(state: dict):
     _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
     _fmt_pct = "val => val != null ? val.toFixed(0) + '%' : ''"
     _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
     columns = [
         {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
         {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
@@ -527,6 +544,7 @@ def _build_discover_panel(state: dict):
         {"name": "margin_pct", "label": "Margin %", "field": "margin_pct", "sortable": True, ":format": _fmt_pct},
         {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
         {"name": "profit_per_day", "label": "Profit/day", "field": "profit_per_day", "sortable": True, ":format": _fmt_gil},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
     ]
     table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
 
@@ -563,6 +581,7 @@ def _build_discover_panel(state: dict):
                     "margin_pct": r.margin_pct,
                     "velocity": r.sale_velocity,
                     "profit_per_day": r.profit_per_day,
+                    "last_updated": r.last_upload_time,
                 }
                 for r in results
             ]

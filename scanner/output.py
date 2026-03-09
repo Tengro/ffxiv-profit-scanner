@@ -116,10 +116,13 @@ def print_gather_result(
     velocity: float,
     gil_per_day: float,
     is_stale: bool,
+    bargain: dict | None = None,
 ):
     stale = " [STALE]" if is_stale else ""
     timed = " [T]" if is_timed else ""
     print(f"  {name:<30} {job} Lv.{level:<3}{timed}{stale}")
     print(f"    Location: {location}")
     print(f"    MB Price: {gil(mb_price):>10}  |  Sales/day: {velocity:.1f}  |  Gil/day: {gil(gil_per_day)}")
+    if bargain:
+        print(f"    [BARGAIN] {bargain['world']}: {gil(bargain['price'])} x{bargain['qty']} ({bargain['discount_pct']}% below avg)")
     print()

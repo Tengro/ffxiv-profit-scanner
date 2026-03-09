@@ -34,6 +34,7 @@ class MarginResult:
     profit_per_day: float
     is_stale: bool
     ingredient_costs: list[IngredientCost] = field(default_factory=list)
+    last_upload_time: int = 0
 
 
 def resolve_ingredient_cost(
@@ -163,4 +164,5 @@ def calculate_margin(
         profit_per_day=profit_per_day,
         is_stale=sell_data.is_stale,
         ingredient_costs=ingredient_costs,
+        last_upload_time=sell_data.last_upload_time,
     )

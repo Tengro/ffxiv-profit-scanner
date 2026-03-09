@@ -50,6 +50,7 @@ def scan(
                 "velocity": velocity,
                 "daily_profit": daily_profit,
                 "is_stale": price_data.is_stale,
+                "last_updated": price_data.last_upload_time,
                 "price_data": price_data,
             })
 

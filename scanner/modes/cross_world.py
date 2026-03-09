@@ -106,6 +106,7 @@ def scan(
             "spread_pct": spread_pct,
             "net_profit": net_profit,
             "is_stale": price_data.is_stale,
+            "last_updated": price_data.last_upload_time,
         })
 
     results.sort(key=lambda r: r["spread_pct"], reverse=True)
