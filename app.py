@@ -3,7 +3,7 @@
 
 from nicegui import ui, run
 
-from scanner.modes import craft_scan, vendor_arbitrage, gather_scan, hunter_scan, crafting_scan, scrape_seeds
+from scanner.modes import craft_scan, vendor_arbitrage, gather_scan, hunter_scan, crafting_scan, seal_scan, scrape_seeds
 from scanner.data.seeds import _load_seeds, reload_seeds, SEEDS_PATH
 from scanner.output import gil
 from scanner import cache
@@ -123,6 +123,7 @@ def create_app():
         gather_tab = ui.tab("Gather", icon="park")
         hunter_tab = ui.tab("Hunter", icon="pets")
         vendor_tab = ui.tab("Vendor", icon="store")
+        seal_tab = ui.tab("Seals", icon="military_tech")
         workshop_tab = ui.tab("Workshop", icon="build")
         seeds_tab = ui.tab("Seeds", icon="storage")
 
@@ -143,6 +144,10 @@ def create_app():
         # ===================== VENDOR ARBITRAGE =====================
         with ui.tab_panel(vendor_tab):
             _build_vendor_panel(state)
+
+        # ===================== SEAL ARBITRAGE =====================
+        with ui.tab_panel(seal_tab):
+            _build_seal_panel(state)
 
         # ===================== WORKSHOP =====================
         with ui.tab_panel(workshop_tab):
@@ -617,6 +622,86 @@ def _build_crafting_panel(state: dict):
         except Exception as e:
             progress_label.text = f"Error: {e}"
             ui.notify(f"Crafting scan failed: {e}", type="negative")
+        finally:
+            spinner.visible = False
+            progress_bar.visible = False
+            scan_btn.enable()
+
+    scan_btn.on_click(with_cache_check(state, _run_scan))
+
+
+def _build_seal_panel(state: dict):
+    min_velocity = {"value": 0.5}
+
+    ui.label(
+        "Find the best gil-per-seal conversion. "
+        "Scans all marketable items for GC seal trade shops, then compares seal cost to MB price. "
+        "First run is slow (~3-5 min) as it checks items against Garland; subsequent runs use cache."
+    ).classes("text-info p-2 bg-blue-1 rounded w-full")
+
+    with ui.row().classes("items-center gap-4 p-2"):
+        ui.number("Min Velocity", value=0.5, min=0, step=0.1, format="%.1f",
+                  on_change=lambda e: min_velocity.update(value=e.value or 0)).classes("w-32")
+        scan_btn = ui.button("Scan", icon="play_arrow")
+        spinner = ui.spinner(size="lg")
+        spinner.visible = False
+
+    progress_label = ui.label("").classes("p-2")
+    progress_bar = ui.linear_progress(value=0, show_value=False).classes("w-full")
+    progress_bar.visible = False
+
+    _fmt_gil = "val => val != null ? val.toLocaleString('en-US', {maximumFractionDigits: 0}) : ''"
+    _fmt_dec = "val => val != null ? val.toFixed(1) : ''"
+    _fmt_age = "val => { if (!val) return '?'; let s = val > 1e12 ? val/1000 : val; let m = Math.floor((Date.now()/1000 - s)/60); if (m < 60) return m + 'm ago'; let h = Math.floor(m/60); if (h < 24) return h + 'h ' + (m%60) + 'm ago'; return Math.floor(h/24) + 'd ago'; }"
+    columns = [
+        {"name": "name", "label": "Item", "field": "name", "sortable": True, "align": "left"},
+        {"name": "seal_cost", "label": "Seal Cost", "field": "seal_cost", "sortable": True, ":format": _fmt_gil},
+        {"name": "mb_price", "label": "MB Price", "field": "mb_price", "sortable": True, ":format": _fmt_gil},
+        {"name": "gil_per_seal", "label": "Gil/Seal", "field": "gil_per_seal", "sortable": True, ":format": _fmt_dec},
+        {"name": "velocity", "label": "Sales/day", "field": "velocity", "sortable": True, ":format": _fmt_dec},
+        {"name": "daily_profit", "label": "Gil/day", "field": "daily_profit", "sortable": True, ":format": _fmt_gil},
+        {"name": "last_updated", "label": "Updated", "field": "last_updated", "sortable": True, ":format": _fmt_age},
+    ]
+    table = ui.table(columns=columns, rows=[], row_key="item_id").classes("w-full")
+
+    async def _run_scan(allow_stale: bool = False):
+        scan_btn.disable()
+        spinner.visible = True
+        progress_bar.visible = True
+        progress_bar.value = 0
+        progress_label.text = "Starting seal arbitrage scan..."
+
+        def _on_progress(phase, total, msg):
+            progress_bar.value = phase / total
+            progress_label.text = f"Phase {phase}/{total}: {msg}"
+
+        try:
+            results = await run.io_bound(
+                seal_scan.scan,
+                dc=state["dc"], world=state["world"],
+                no_cache=state["no_cache"],
+                allow_stale=allow_stale,
+                min_velocity=min_velocity["value"],
+                on_progress=_on_progress,
+            )
+            table.rows = [
+                {
+                    "item_id": r["item_id"],
+                    "name": r["name"],
+                    "seal_cost": r["seal_cost"],
+                    "mb_price": r["mb_price"],
+                    "gil_per_seal": r["gil_per_seal"],
+                    "velocity": r["velocity"],
+                    "daily_profit": r["daily_profit"],
+                    "last_updated": r.get("last_updated", 0),
+                }
+                for r in results
+            ]
+            table.update()
+            progress_label.text = f"Done — {len(results)} seal arbitrage opportunities found"
+        except Exception as e:
+            progress_label.text = f"Error: {e}"
+            ui.notify(f"Seal scan failed: {e}", type="negative")
         finally:
             spinner.visible = False
             progress_bar.visible = False

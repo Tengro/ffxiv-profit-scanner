@@ -36,10 +36,18 @@ python3 ffxiv_scanner.py --mode gather --dc Chaos --world Louisoix --min-level 9
 
 ### Hunter
 
-Find profitable mob-drop materials (hides, horns, meat, bones, etc.). Uses item-side detection — works across all expansions.
+Find profitable mob-drop materials (hides, horns, meat, bones, etc.). Uses the `drops` field from Garland to identify actual mob drops — filters out seal-only and venture-only items.
 
 ```bash
 python3 ffxiv_scanner.py --mode hunter --dc Chaos --world Louisoix --min-price 200
+```
+
+### Seal Arbitrage
+
+Find the best gil-per-seal conversion. Scans all marketable items for GC seal trade shops, compares seal cost to MB price.
+
+```bash
+python3 ffxiv_scanner.py --mode seal-arbitrage --dc Chaos --world Louisoix
 ```
 
 ### Vendor Arbitrage
@@ -112,7 +120,7 @@ A 5% tax is applied to all revenue.
 |------|---------|-------------|
 | `--dc` | `Chaos` | Data center name |
 | `--world` | `Louisoix` | Home world for selling prices |
-| `--mode` | `crafting` | `crafting`, `gather`, `hunter`, `vendor-arbitrage`, `workshop`, `scrape-seeds` |
+| `--mode` | `crafting` | `crafting`, `gather`, `hunter`, `seal-arbitrage`, `vendor-arbitrage`, `workshop`, `scrape-seeds` |
 | `--item` | — | Search for item by name |
 | `--item-id` | — | Scan a specific item by ID |
 | `--gc-seals-free` | off | Treat GC seal items as zero cost (workshop mode) |
@@ -168,6 +176,7 @@ scanner/
     craft_scan.py             # Workshop profit scan (full margin analysis)
     crafting_scan.py          # Crafting scan (by class + level, price/velocity)
     hunter_scan.py            # Mob-drop material scan
+    seal_scan.py              # GC seal arbitrage scan
     gather_scan.py            # Gathering scan (by class + level)
     vendor_arbitrage.py       # NPC vendor markup scan
     scrape_seeds.py           # Item discovery + seed generation

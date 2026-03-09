@@ -18,7 +18,7 @@ def main():
                         help="Home world for selling prices (default: Louisoix)")
     parser.add_argument(
         "--mode", default="crafting",
-        choices=["workshop", "crafting", "vendor-arbitrage", "gather", "hunter", "scrape-seeds"],
+        choices=["workshop", "crafting", "vendor-arbitrage", "gather", "hunter", "seal-arbitrage", "scrape-seeds"],
         help="Scan mode (default: crafting)",
     )
     parser.add_argument("--item", help="Search for item by name")
@@ -125,6 +125,15 @@ def main():
             no_cache=args.no_cache,
             allow_stale=args.stale_ok,
             min_price=args.min_price,
+            min_velocity=args.min_velocity,
+        )
+    elif args.mode == "seal-arbitrage":
+        from scanner.modes.seal_scan import run
+        run(
+            dc=args.dc,
+            world=args.world,
+            no_cache=args.no_cache,
+            allow_stale=args.stale_ok,
             min_velocity=args.min_velocity,
         )
     elif args.mode == "scrape-seeds":

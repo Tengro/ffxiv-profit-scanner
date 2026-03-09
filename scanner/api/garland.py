@@ -347,8 +347,12 @@ def _fetch_node_items(node_id: int, source_type: str, no_cache: bool) -> list[di
 
 
 def is_hunting_material(item_id: int, no_cache: bool = False) -> bool:
-    """Check if an item is a hunting material (mob drop / retainer venture, not gathered/crafted)."""
-    cache_key = f"hunter_{item_id}"
+    """Check if an item is a hunting material (mob drop, tradeable).
+
+    Uses 'drops' field as the signal — items that drop from mobs in the overworld.
+    Filters out seal-only/venture-only items that lack actual mob drops.
+    """
+    cache_key = f"huntdrop_{item_id}"
     if not no_cache:
         cached = cache.get("garland", cache_key)
         if cached is not None:
@@ -366,15 +370,27 @@ def is_hunting_material(item_id: int, no_cache: bool = False) -> bool:
         return False
 
     item = data.get("item", {})
-    has_ventures = "ventures" in item
-    has_nodes = "nodes" in item or "fishingSpots" in item
-    has_craft = bool(item.get("craft"))
+    has_drops = "drops" in item
     tradeable = item.get("tradeable", 0) == 1
-    result = has_ventures and not has_nodes and not has_craft and tradeable
+    result = has_drops and tradeable
 
     if not no_cache:
         cache.put("garland", cache_key, result)
     return result
+
+
+# GC seal currency IDs (Garland uses string IDs in tradeShops)
+GC_SEAL_CURRENCY_IDS = {"20", "21", "22"}  # Storm, Serpent, Flame
+
+
+def _extract_gc_seal_cost(item: dict) -> int:
+    """Extract GC seal cost from item's tradeShops. Returns seal amount or 0."""
+    for shop in item.get("tradeShops", []):
+        for listing in shop.get("listings", []):
+            for c in listing.get("currency", []):
+                if str(c.get("id")) in GC_SEAL_CURRENCY_IDS:
+                    return int(c.get("amount", 0))
+    return 0
 
 
 def fetch_item_name(item_id: int, no_cache: bool = False) -> str:
@@ -482,13 +498,20 @@ def check_hunting_items(
     no_cache: bool = False,
     on_progress: callable = None,
 ) -> dict[int, str]:
-    """Check which items are hunting materials. Returns {item_id: name} for matches."""
+    """Check which items are hunting materials (have mob drops).
+
+    Uses 'drops' field as the signal — much more accurate than the old
+    'ventures + !nodes + !craft' heuristic, which let through seal-only
+    and venture-only items (e.g. Petrified Log, Domakin).
+
+    Returns {item_id: name} for matches.
+    """
     results = {}
     for i, item_id in enumerate(item_ids):
         if on_progress and (i + 1) % 50 == 0:
             on_progress(f"Checking items... {i + 1}/{len(item_ids)}")
 
-        cache_key = f"hunter_{item_id}"
+        cache_key = f"huntdrop_{item_id}"
         if not no_cache:
             cached = cache.get("garland", cache_key)
             if cached is not None:
@@ -510,11 +533,9 @@ def check_hunting_items(
             continue
 
         item = data.get("item", {})
-        has_ventures = "ventures" in item
-        has_nodes = "nodes" in item or "fishingSpots" in item
-        has_craft = bool(item.get("craft"))
+        has_drops = "drops" in item
         tradeable = item.get("tradeable", 0) == 1
-        is_hunter = has_ventures and not has_nodes and not has_craft and tradeable
+        is_hunter = has_drops and tradeable
 
         if not no_cache:
             cache.put("garland", cache_key, is_hunter)
@@ -524,6 +545,59 @@ def check_hunting_items(
             name = item.get("name", "")
             if name:
                 results[item_id] = name
+
+    return results
+
+
+def check_seal_items(
+    item_ids: list[int],
+    no_cache: bool = False,
+    on_progress: callable = None,
+) -> dict[int, dict]:
+    """Check which items are purchasable with GC seals.
+
+    Returns {item_id: {name, seal_cost}} for tradeable items with GC seal shops.
+    """
+    results = {}
+    for i, item_id in enumerate(item_ids):
+        if on_progress and (i + 1) % 50 == 0:
+            on_progress(f"Checking items... {i + 1}/{len(item_ids)}")
+
+        cache_key = f"seal_{item_id}"
+        if not no_cache:
+            cached = cache.get("garland", cache_key)
+            if cached is not None:
+                if cached and isinstance(cached, dict):
+                    results[item_id] = cached
+                continue
+
+        _rate_limit()
+        url = ITEM_URL.format(item_id=item_id)
+        try:
+            resp = requests.get(url, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
+            continue
+
+        item = data.get("item", {})
+        tradeable = item.get("tradeable", 0) == 1
+        seal_cost = _extract_gc_seal_cost(item)
+
+        if tradeable and seal_cost > 0:
+            seal_info = {
+                "name": item.get("name", ""),
+                "seal_cost": seal_cost,
+            }
+            if not no_cache:
+                cache.put("garland", cache_key, seal_info)
+                cache.put("garland", f"full_{item_id}", data)
+            results[item_id] = seal_info
+        else:
+            if not no_cache:
+                cache.put("garland", cache_key, False)
 
     return results
 

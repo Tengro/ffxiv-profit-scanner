@@ -141,6 +141,22 @@ def print_hunter_result(
     print()
 
 
+def print_seal_result(
+    name: str,
+    item_id: int,
+    seal_cost: int,
+    mb_price: float,
+    gil_per_seal: float,
+    velocity: float,
+    daily_profit: float,
+    is_stale: bool,
+):
+    stale = " [STALE]" if is_stale else ""
+    print(f"  {name:<30} (ID: {item_id}){stale}")
+    print(f"    Seals: {seal_cost:>6}  →  MB: {gil(mb_price):>10}  |  Gil/seal: {gil_per_seal:>6.1f}  |  Sales/day: {velocity:.1f}  |  Gil/day: {gil(daily_profit)}")
+    print()
+
+
 def print_gather_result(
     name: str,
     item_id: int,
